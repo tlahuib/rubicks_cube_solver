@@ -2,7 +2,14 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 )
+
+type Move struct {
+	axis      int
+	line      int
+	direction bool
+}
 
 var faceColors = [6]rune{'w', 'y', 'g', 'b', 'r', 'o'}
 var blank string = "         "
@@ -10,6 +17,26 @@ var axisRelation = [3][4]int8{
 	{0, 3, 1, 2}, // axis x, moves front, right, back and left faces
 	{0, 4, 1, 5}, // axis y, moves front, top, back and bottom faces
 	{2, 4, 3, 5}, // axis z, moves left, top, right and bottom faces
+}
+var moveNotation = map[Move]string{
+	{axis: 0, line: 0, direction: false}: "U",
+	{axis: 0, line: 0, direction: true}:  "U'",
+	{axis: 0, line: 1, direction: false}: "E'",
+	{axis: 0, line: 1, direction: true}:  "E",
+	{axis: 0, line: 2, direction: false}: "D'",
+	{axis: 0, line: 2, direction: true}:  "D",
+	{axis: 1, line: 0, direction: false}: "L",
+	{axis: 1, line: 0, direction: true}:  "L'",
+	{axis: 1, line: 1, direction: false}: "M",
+	{axis: 1, line: 1, direction: true}:  "M'",
+	{axis: 1, line: 2, direction: false}: "R'",
+	{axis: 1, line: 2, direction: true}:  "R",
+	{axis: 2, line: 0, direction: false}: "F'",
+	{axis: 2, line: 0, direction: true}:  "F",
+	{axis: 2, line: 1, direction: false}: "S'",
+	{axis: 2, line: 1, direction: true}:  "S",
+	{axis: 2, line: 2, direction: false}: "B",
+	{axis: 2, line: 2, direction: true}:  "B'",
 }
 
 func InitializeCube() [6][3][3]rune {
@@ -69,13 +96,13 @@ func reverseFace(face [3][3]rune) [3][3]rune {
 	return reversedFace
 }
 
-func rotateX(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
+func rotateX(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	var ii [4]int
 	var shift int
 	_cube := cube
 
 	// The direction changes loop and shift
-	if direction {
+	if move.direction {
 		ii = [4]int{3, 2, 1, 0}
 		shift = 3
 	} else {
@@ -85,21 +112,21 @@ func rotateX(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 
 	// Iterate over rows
 	for _, i := range ii {
-		_cube[axisRelation[0][i]][line] = cube[axisRelation[0][(i+shift)%4]][line]
+		_cube[axisRelation[0][i]][move.line] = cube[axisRelation[0][(i+shift)%4]][move.line]
 	}
 
 	// Rotate top or bottom face
-	switch line {
+	switch move.line {
 	case 0:
-		_cube = rotateFace(_cube, 4, !direction)
+		_cube = rotateFace(_cube, 4, !move.direction)
 	case 2:
-		_cube = rotateFace(_cube, 5, direction)
+		_cube = rotateFace(_cube, 5, move.direction)
 	}
 
 	return _cube
 }
 
-func rotateY(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
+func rotateY(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	var ii [4]int
 	var shift int
 	_cube := cube
@@ -109,7 +136,7 @@ func rotateY(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 	referenceCube := _cube
 
 	// The direction changes loop and shift
-	if direction {
+	if move.direction {
 		ii = [4]int{3, 2, 1, 0}
 		shift = 3
 	} else {
@@ -119,7 +146,7 @@ func rotateY(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 
 	for _, i := range ii { // Iterate over faces
 		for j := 0; j < 3; j++ { // Iterate over Rows
-			_cube[axisRelation[1][i]][j][line] = referenceCube[axisRelation[1][(i+shift)%4]][j][line]
+			_cube[axisRelation[1][i]][j][move.line] = referenceCube[axisRelation[1][(i+shift)%4]][j][move.line]
 		}
 	}
 
@@ -127,17 +154,17 @@ func rotateY(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 	_cube[1] = reverseFace(_cube[1])
 
 	// Rotate left or right face
-	switch line {
+	switch move.line {
 	case 0:
-		_cube = rotateFace(_cube, 2, !direction)
+		_cube = rotateFace(_cube, 2, !move.direction)
 	case 2:
-		_cube = rotateFace(_cube, 3, direction)
+		_cube = rotateFace(_cube, 3, move.direction)
 	}
 
 	return _cube
 }
 
-func rotateZ(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
+func rotateZ(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	var ii [4]int
 	var shift int
 	_cube := cube
@@ -149,7 +176,7 @@ func rotateZ(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 	referenceCube := _cube
 
 	// The direction changes loop and shift
-	if direction {
+	if move.direction {
 		ii = [4]int{3, 2, 1, 0}
 		shift = 3
 	} else {
@@ -160,11 +187,11 @@ func rotateZ(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 	for _, i := range ii { // Iterate over faces
 		if i%2 == 0 { // Left and right use columns, up and bottom use rows
 			for j := 0; j < 3; j++ { // Iterate over elements
-				_cube[axisRelation[2][i]][j][line] = referenceCube[axisRelation[2][(i+shift)%4]][line][j]
+				_cube[axisRelation[2][i]][j][move.line] = referenceCube[axisRelation[2][(i+shift)%4]][move.line][j]
 			}
 		} else {
 			for j := 0; j < 3; j++ { // Iterate over elements
-				_cube[axisRelation[2][i]][line][j] = referenceCube[axisRelation[2][(i+shift)%4]][j][line]
+				_cube[axisRelation[2][i]][move.line][j] = referenceCube[axisRelation[2][(i+shift)%4]][j][move.line]
 			}
 		}
 	}
@@ -175,29 +202,42 @@ func rotateZ(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 	_cube[5] = reverseCols(_cube[5])
 
 	// Rotate front or back face
-	switch line {
+	switch move.line {
 	case 0:
-		_cube = rotateFace(_cube, 0, direction)
+		_cube = rotateFace(_cube, 0, move.direction)
 	case 2:
-		_cube = rotateFace(_cube, 1, !direction)
+		_cube = rotateFace(_cube, 1, !move.direction)
 	}
 
 	return _cube
 }
 
-func MoveCube(cube [6][3][3]rune, axis int8, line int8, direction bool) [6][3][3]rune {
+func MoveCube(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	var _cube [6][3][3]rune
 
-	switch axis {
+	switch move.axis {
 	case 0:
-		_cube = rotateX(cube, line, direction)
+		_cube = rotateX(cube, move)
 	case 1:
-		_cube = rotateY(cube, line, direction)
+		_cube = rotateY(cube, move)
 	case 2:
-		_cube = rotateZ(cube, line, direction)
+		_cube = rotateZ(cube, move)
 	}
 
 	return _cube
+}
+
+func ScrambleCube(cube [6][3][3]rune, nMoves int) ([6][3][3]rune, []string) {
+	var moves []string
+	_cube := cube
+
+	for i := 0; i < nMoves; i++ {
+		move := Move{rand.Intn(3), rand.Intn(3), rand.Float32() <= 0.5}
+		moves = append(moves, moveNotation[move])
+		_cube = MoveCube(_cube, move)
+	}
+
+	return _cube, moves
 }
 
 func stringifyLine(line [3]rune) string {
@@ -233,14 +273,11 @@ func PrintCube(cube [6][3][3]rune) {
 }
 
 func main() {
-	line := int8(2)
+	var moves []string
 	cube := InitializeCube()
-	PrintCube(cube)
 
-	cube = rotateZ(cube, line, true)
-	fmt.Println("-------------------------------------------------------------")
-	PrintCube(cube)
-	cube = rotateZ(cube, line, false)
-	fmt.Println("-------------------------------------------------------------")
+	cube, moves = ScrambleCube(cube, 10)
+
+	fmt.Println(moves)
 	PrintCube(cube)
 }
