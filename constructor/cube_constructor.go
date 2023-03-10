@@ -17,19 +17,11 @@ func InitializeCube() [6][3][3]rune {
 	// The faces are ordered front, back, left, right, top, bottom
 	var cube [6][3][3]rune
 
-	// for i := 0; i < 6; i++ {
-	// 	for j := 0; j < 3; j++ {
-	// 		for k := 0; k < 3; k++ {
-	// 			cube[i][j][k] = faceColors[i]
-	// 		}
-	// 	}
-	// }
-
 	for i := 0; i < 6; i++ {
-		cube[i] = [3][3]rune{
-			{'1', '2', '3'},
-			{'8', '0', '4'},
-			{'7', '6', '5'},
+		for j := 0; j < 3; j++ {
+			for k := 0; k < 3; k++ {
+				cube[i][j][k] = faceColors[i]
+			}
 		}
 	}
 
@@ -50,18 +42,31 @@ func rotateFace(cube [6][3][3]rune, face int, direction bool) [6][3][3]rune {
 	return _cube
 }
 
-func reverseCuve(cube [6][3][3]rune) [6][3][3]rune {
-	var reverseCuve [6][3][3]rune
+func reverseRows(face [3][3]rune) [3][3]rune {
+	reversedRows := face
 
-	for i := 0; i < 6; i++ {
-		for j := 0; j < 3; j++ {
-			for k := 0; k < 3; k++ {
-				reverseCuve[i][j][k] = cube[i][2-j][2-k]
-			}
-		}
+	reversedRows[0], reversedRows[2] = reversedRows[2], reversedRows[0]
+
+	return reversedRows
+}
+
+func reverseCols(face [3][3]rune) [3][3]rune {
+	reversedCols := face
+
+	for i := 0; i < 3; i++ {
+		reversedCols[i][0], reversedCols[i][2] = reversedCols[i][2], reversedCols[i][0]
 	}
 
-	return reverseCuve
+	return reversedCols
+}
+
+func reverseFace(face [3][3]rune) [3][3]rune {
+	reversedFace := face
+
+	reversedFace = reverseCols(reversedFace)
+	reversedFace = reverseRows(reversedFace)
+
+	return reversedFace
 }
 
 func rotateX(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
@@ -97,49 +102,29 @@ func rotateX(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 func rotateY(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 	var ii [4]int
 	var shift int
-	var iPrev int
-	var sourceCube [6][3][3]rune
-	var _line int8
 	_cube := cube
 
 	// Account for the back being reversed
-	rev := reverseCuve(cube)
+	_cube[1] = reverseFace(_cube[1])
+	referenceCube := _cube
 
 	// The direction changes loop and shift
 	if direction {
 		ii = [4]int{3, 2, 1, 0}
 		shift = 3
-		iPrev = 4
 	} else {
 		ii = [4]int{0, 1, 2, 3}
 		shift = 1
-		iPrev = 2
 	}
 
 	for _, i := range ii { // Iterate over faces
-		if i != 2 {
-			if i == iPrev {
-				sourceCube = rev
-			} else {
-				sourceCube = cube
-			}
-			for j := 0; j < 3; j++ { // Iterate over Rows
-				_cube[axisRelation[1][i]][j][line] = sourceCube[axisRelation[1][(i+shift)%4]][j][line]
-			}
-		} else {
-			switch line {
-			case 0:
-				_line = 2
-			case 1:
-				_line = 1
-			case 2:
-				_line = 0
-			}
-			for j := 0; j < 3; j++ { // Iterate over Rows
-				_cube[axisRelation[1][i]][2-j][_line] = cube[axisRelation[1][(i+shift)%4]][j][line]
-			}
+		for j := 0; j < 3; j++ { // Iterate over Rows
+			_cube[axisRelation[1][i]][j][line] = referenceCube[axisRelation[1][(i+shift)%4]][j][line]
 		}
 	}
+
+	// Undo the reversion
+	_cube[1] = reverseFace(_cube[1])
 
 	// Rotate left or right face
 	switch line {
@@ -155,8 +140,13 @@ func rotateY(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 func rotateZ(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 	var ii [4]int
 	var shift int
-	var _line int8
 	_cube := cube
+
+	// Account for rows/columns reversion
+	_cube[2] = reverseFace(_cube[2])
+	_cube[4] = reverseRows(_cube[4])
+	_cube[5] = reverseCols(_cube[5])
+	referenceCube := _cube
 
 	// The direction changes loop and shift
 	if direction {
@@ -168,47 +158,47 @@ func rotateZ(cube [6][3][3]rune, line int8, direction bool) [6][3][3]rune {
 	}
 
 	for _, i := range ii { // Iterate over faces
-		// Depending on the face, the line can either top/bottom, left/right
-		if (i%3 == 0) && (line != 1) {
-			if line == 0 {
-				_line = 2
-			} else {
-				_line = 0
-			}
-		} else {
-			_line = line
-		}
-
-		// Depending on the face, line can refer to either rows or columns
-		if i%2 == 0 {
+		if i%2 == 0 { // Left and right use columns, up and bottom use rows
 			for j := 0; j < 3; j++ { // Iterate over elements
-				_cube[axisRelation[2][i]][_line][j] = cube[axisRelation[2][(i+shift)%4]][j][_line]
+				_cube[axisRelation[2][i]][j][line] = referenceCube[axisRelation[2][(i+shift)%4]][line][j]
 			}
 		} else {
 			for j := 0; j < 3; j++ { // Iterate over elements
-				_cube[axisRelation[2][i]][j][_line] = cube[axisRelation[2][(i+shift)%4]][_line][j]
+				_cube[axisRelation[2][i]][line][j] = referenceCube[axisRelation[2][(i+shift)%4]][j][line]
 			}
 		}
 	}
+
+	// Undo the reversion
+	_cube[2] = reverseFace(_cube[2])
+	_cube[4] = reverseRows(_cube[4])
+	_cube[5] = reverseCols(_cube[5])
 
 	// Rotate front or back face
 	switch line {
 	case 0:
 		_cube = rotateFace(_cube, 0, direction)
 	case 2:
-		_cube = rotateFace(_cube, 1, direction)
+		_cube = rotateFace(_cube, 1, !direction)
 	}
 
 	return _cube
 }
 
-// func MoveCube(cube [6][3][3]rune, axis int8, line int8, direction bool) [6][3][3]rune {
-// 	axisRel := axisRelation[axis]
-// 	if direction{
-// 		cube[axisRel[0]][][], cube[axisRel[0]][][], cube[axisRel[0]][][], cube[axisRel[0]][][] =
+func MoveCube(cube [6][3][3]rune, axis int8, line int8, direction bool) [6][3][3]rune {
+	var _cube [6][3][3]rune
 
-// 	}
-// }
+	switch axis {
+	case 0:
+		_cube = rotateX(cube, line, direction)
+	case 1:
+		_cube = rotateY(cube, line, direction)
+	case 2:
+		_cube = rotateZ(cube, line, direction)
+	}
+
+	return _cube
+}
 
 func stringifyLine(line [3]rune) string {
 	var strLine string
@@ -243,12 +233,14 @@ func PrintCube(cube [6][3][3]rune) {
 }
 
 func main() {
+	line := int8(2)
 	cube := InitializeCube()
-	cube = reverseCuve(cube)
-
-	// cube = rotateY(cube, 2, true)
 	PrintCube(cube)
-	// cube = rotateY(cube, 2, false)
-	// fmt.Println("-------------------------------------------------------------")
-	// PrintCube(cube)
+
+	cube = rotateZ(cube, line, true)
+	fmt.Println("-------------------------------------------------------------")
+	PrintCube(cube)
+	cube = rotateZ(cube, line, false)
+	fmt.Println("-------------------------------------------------------------")
+	PrintCube(cube)
 }
