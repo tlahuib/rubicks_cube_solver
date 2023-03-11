@@ -39,7 +39,7 @@ var moveNotation = map[Move]string{
 	{axis: 2, line: 2, direction: true}:  "B'",
 }
 
-func InitializeCube() [6][3][3]rune {
+func initializeCube() [6][3][3]rune {
 	// The array is face, line, column
 	// The faces are ordered front, back, left, right, top, bottom
 	var cube [6][3][3]rune
@@ -227,7 +227,7 @@ func MoveCube(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	return _cube
 }
 
-func ScrambleCube(cube [6][3][3]rune, nMoves int) ([6][3][3]rune, []string) {
+func scrambleCube(cube [6][3][3]rune, nMoves int) ([6][3][3]rune, []string) {
 	var moves []string
 	_cube := cube
 
@@ -238,6 +238,14 @@ func ScrambleCube(cube [6][3][3]rune, nMoves int) ([6][3][3]rune, []string) {
 	}
 
 	return _cube, moves
+}
+
+func InitializeScrambledCube(nMoves int) [6][3][3]rune {
+	cube := initializeCube()
+
+	cube, _ = scrambleCube(cube, nMoves)
+
+	return cube
 }
 
 func stringifyLine(line [3]rune) string {
@@ -274,9 +282,9 @@ func PrintCube(cube [6][3][3]rune) {
 
 func main() {
 	var moves []string
-	cube := InitializeCube()
+	cube := initializeCube()
 
-	cube, moves = ScrambleCube(cube, 10)
+	cube, moves = scrambleCube(cube, 10)
 
 	fmt.Println(moves)
 	PrintCube(cube)
