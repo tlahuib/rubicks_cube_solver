@@ -1,4 +1,4 @@
-package main
+package Cube
 
 import (
 	"fmt"
@@ -278,14 +278,4 @@ func PrintCube(cube [6][3][3]rune) {
 	for i := 0; i < 3; i++ {
 		fmt.Println(blank, stringifyLine(cube[5][i]))
 	}
-}
-
-func main() {
-	var moves []string
-	cube := initializeCube()
-
-	cube, moves = scrambleCube(cube, 10)
-
-	fmt.Println(moves)
-	PrintCube(cube)
 }
