@@ -6,37 +6,37 @@ import (
 )
 
 type Move struct {
-	axis      int
-	line      int
-	direction bool
+	Axis      int
+	Line      int
+	Direction bool
 }
 
 var faceColors = [6]rune{'w', 'y', 'g', 'b', 'r', 'o'}
 var blank string = "         "
-var axisRelation = [3][4]int8{
-	{0, 3, 1, 2}, // axis x, moves front, right, back and left faces
-	{0, 4, 1, 5}, // axis y, moves front, top, back and bottom faces
-	{2, 4, 3, 5}, // axis z, moves left, top, right and bottom faces
+var AxisRelation = [3][4]int8{
+	{0, 3, 1, 2}, // Axis x, moves front, right, back and left faces
+	{0, 4, 1, 5}, // Axis y, moves front, top, back and bottom faces
+	{2, 4, 3, 5}, // Axis z, moves left, top, right and bottom faces
 }
-var moveNotation = map[Move]string{
-	{axis: 0, line: 0, direction: false}: "U",
-	{axis: 0, line: 0, direction: true}:  "U'",
-	{axis: 0, line: 1, direction: false}: "E'",
-	{axis: 0, line: 1, direction: true}:  "E",
-	{axis: 0, line: 2, direction: false}: "D'",
-	{axis: 0, line: 2, direction: true}:  "D",
-	{axis: 1, line: 0, direction: false}: "L",
-	{axis: 1, line: 0, direction: true}:  "L'",
-	{axis: 1, line: 1, direction: false}: "M",
-	{axis: 1, line: 1, direction: true}:  "M'",
-	{axis: 1, line: 2, direction: false}: "R'",
-	{axis: 1, line: 2, direction: true}:  "R",
-	{axis: 2, line: 0, direction: false}: "F'",
-	{axis: 2, line: 0, direction: true}:  "F",
-	{axis: 2, line: 1, direction: false}: "S'",
-	{axis: 2, line: 1, direction: true}:  "S",
-	{axis: 2, line: 2, direction: false}: "B",
-	{axis: 2, line: 2, direction: true}:  "B'",
+var MoveNotation = map[Move]string{
+	{Axis: 0, Line: 0, Direction: false}: "U",
+	{Axis: 0, Line: 0, Direction: true}:  "U'",
+	{Axis: 0, Line: 1, Direction: false}: "E'",
+	{Axis: 0, Line: 1, Direction: true}:  "E",
+	{Axis: 0, Line: 2, Direction: false}: "D'",
+	{Axis: 0, Line: 2, Direction: true}:  "D",
+	{Axis: 1, Line: 0, Direction: false}: "L",
+	{Axis: 1, Line: 0, Direction: true}:  "L'",
+	{Axis: 1, Line: 1, Direction: false}: "M",
+	{Axis: 1, Line: 1, Direction: true}:  "M'",
+	{Axis: 1, Line: 2, Direction: false}: "R'",
+	{Axis: 1, Line: 2, Direction: true}:  "R",
+	{Axis: 2, Line: 0, Direction: false}: "F'",
+	{Axis: 2, Line: 0, Direction: true}:  "F",
+	{Axis: 2, Line: 1, Direction: false}: "S'",
+	{Axis: 2, Line: 1, Direction: true}:  "S",
+	{Axis: 2, Line: 2, Direction: false}: "B",
+	{Axis: 2, Line: 2, Direction: true}:  "B'",
 }
 
 func initializeCube() [6][3][3]rune {
@@ -102,7 +102,7 @@ func rotateX(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	_cube := cube
 
 	// The direction changes loop and shift
-	if move.direction {
+	if move.Direction {
 		ii = [4]int{3, 2, 1, 0}
 		shift = 3
 	} else {
@@ -112,15 +112,15 @@ func rotateX(cube [6][3][3]rune, move Move) [6][3][3]rune {
 
 	// Iterate over rows
 	for _, i := range ii {
-		_cube[axisRelation[0][i]][move.line] = cube[axisRelation[0][(i+shift)%4]][move.line]
+		_cube[AxisRelation[0][i]][move.Line] = cube[AxisRelation[0][(i+shift)%4]][move.Line]
 	}
 
 	// Rotate top or bottom face
-	switch move.line {
+	switch move.Line {
 	case 0:
-		_cube = rotateFace(_cube, 4, !move.direction)
+		_cube = rotateFace(_cube, 4, !move.Direction)
 	case 2:
-		_cube = rotateFace(_cube, 5, move.direction)
+		_cube = rotateFace(_cube, 5, move.Direction)
 	}
 
 	return _cube
@@ -136,7 +136,7 @@ func rotateY(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	referenceCube := _cube
 
 	// The direction changes loop and shift
-	if move.direction {
+	if move.Direction {
 		ii = [4]int{3, 2, 1, 0}
 		shift = 3
 	} else {
@@ -146,7 +146,7 @@ func rotateY(cube [6][3][3]rune, move Move) [6][3][3]rune {
 
 	for _, i := range ii { // Iterate over faces
 		for j := 0; j < 3; j++ { // Iterate over Rows
-			_cube[axisRelation[1][i]][j][move.line] = referenceCube[axisRelation[1][(i+shift)%4]][j][move.line]
+			_cube[AxisRelation[1][i]][j][move.Line] = referenceCube[AxisRelation[1][(i+shift)%4]][j][move.Line]
 		}
 	}
 
@@ -154,11 +154,11 @@ func rotateY(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	_cube[1] = reverseFace(_cube[1])
 
 	// Rotate left or right face
-	switch move.line {
+	switch move.Line {
 	case 0:
-		_cube = rotateFace(_cube, 2, !move.direction)
+		_cube = rotateFace(_cube, 2, !move.Direction)
 	case 2:
-		_cube = rotateFace(_cube, 3, move.direction)
+		_cube = rotateFace(_cube, 3, move.Direction)
 	}
 
 	return _cube
@@ -176,7 +176,7 @@ func rotateZ(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	referenceCube := _cube
 
 	// The direction changes loop and shift
-	if move.direction {
+	if move.Direction {
 		ii = [4]int{3, 2, 1, 0}
 		shift = 3
 	} else {
@@ -187,11 +187,11 @@ func rotateZ(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	for _, i := range ii { // Iterate over faces
 		if i%2 == 0 { // Left and right use columns, up and bottom use rows
 			for j := 0; j < 3; j++ { // Iterate over elements
-				_cube[axisRelation[2][i]][j][move.line] = referenceCube[axisRelation[2][(i+shift)%4]][move.line][j]
+				_cube[AxisRelation[2][i]][j][move.Line] = referenceCube[AxisRelation[2][(i+shift)%4]][move.Line][j]
 			}
 		} else {
 			for j := 0; j < 3; j++ { // Iterate over elements
-				_cube[axisRelation[2][i]][move.line][j] = referenceCube[axisRelation[2][(i+shift)%4]][j][move.line]
+				_cube[AxisRelation[2][i]][move.Line][j] = referenceCube[AxisRelation[2][(i+shift)%4]][j][move.Line]
 			}
 		}
 	}
@@ -202,11 +202,11 @@ func rotateZ(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	_cube[5] = reverseCols(_cube[5])
 
 	// Rotate front or back face
-	switch move.line {
+	switch move.Line {
 	case 0:
-		_cube = rotateFace(_cube, 0, move.direction)
+		_cube = rotateFace(_cube, 0, move.Direction)
 	case 2:
-		_cube = rotateFace(_cube, 1, !move.direction)
+		_cube = rotateFace(_cube, 1, !move.Direction)
 	}
 
 	return _cube
@@ -215,7 +215,7 @@ func rotateZ(cube [6][3][3]rune, move Move) [6][3][3]rune {
 func MoveCube(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	var _cube [6][3][3]rune
 
-	switch move.axis {
+	switch move.Axis {
 	case 0:
 		_cube = rotateX(cube, move)
 	case 1:
@@ -233,7 +233,7 @@ func scrambleCube(cube [6][3][3]rune, nMoves int) ([6][3][3]rune, []string) {
 
 	for i := 0; i < nMoves; i++ {
 		move := Move{rand.Intn(3), rand.Intn(3), rand.Float32() <= 0.5}
-		moves = append(moves, moveNotation[move])
+		moves = append(moves, MoveNotation[move])
 		_cube = MoveCube(_cube, move)
 	}
 
