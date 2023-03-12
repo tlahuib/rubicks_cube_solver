@@ -1,10 +1,13 @@
-package Cube
+package cube
 
 import (
 	"fmt"
 	"math/rand"
 )
 
+type Cube struct {
+	cube [6][3][3]rune
+}
 type Move struct {
 	Axis      int
 	Line      int
@@ -39,15 +42,15 @@ var MoveNotation = map[Move]string{
 	{Axis: 2, Line: 2, Direction: true}:  "B'",
 }
 
-func initializeCube() [6][3][3]rune {
+func initializeCube() Cube {
 	// The array is face, line, column
 	// The faces are ordered front, back, left, right, top, bottom
-	var cube [6][3][3]rune
+	var cube Cube
 
 	for i := 0; i < 6; i++ {
 		for j := 0; j < 3; j++ {
 			for k := 0; k < 3; k++ {
-				cube[i][j][k] = faceColors[i]
+				cube.cube[i][j][k] = faceColors[i]
 			}
 		}
 	}
@@ -55,14 +58,14 @@ func initializeCube() [6][3][3]rune {
 	return cube
 }
 
-func rotateFace(cube [6][3][3]rune, face int, direction bool) [6][3][3]rune {
+func rotateFace(cube Cube, face int, direction bool) Cube {
 	_cube := cube
 	for i := 0; i < 3; i++ {
 		for j := 0; j < 3; j++ {
 			if direction {
-				_cube[face][j][2-i] = cube[face][i][j]
+				_cube.cube[face][j][2-i] = cube.cube[face][i][j]
 			} else {
-				_cube[face][2-j][i] = cube[face][i][j]
+				_cube.cube[face][2-j][i] = cube.cube[face][i][j]
 			}
 		}
 	}
@@ -96,7 +99,7 @@ func reverseFace(face [3][3]rune) [3][3]rune {
 	return reversedFace
 }
 
-func rotateX(cube [6][3][3]rune, move Move) [6][3][3]rune {
+func rotateX(cube Cube, move Move) Cube {
 	var ii [4]int
 	var shift int
 	_cube := cube
@@ -112,7 +115,7 @@ func rotateX(cube [6][3][3]rune, move Move) [6][3][3]rune {
 
 	// Iterate over rows
 	for _, i := range ii {
-		_cube[AxisRelation[0][i]][move.Line] = cube[AxisRelation[0][(i+shift)%4]][move.Line]
+		_cube.cube[AxisRelation[0][i]][move.Line] = cube.cube[AxisRelation[0][(i+shift)%4]][move.Line]
 	}
 
 	// Rotate top or bottom face
@@ -126,13 +129,13 @@ func rotateX(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	return _cube
 }
 
-func rotateY(cube [6][3][3]rune, move Move) [6][3][3]rune {
+func rotateY(cube Cube, move Move) Cube {
 	var ii [4]int
 	var shift int
 	_cube := cube
 
 	// Account for the back being reversed
-	_cube[1] = reverseFace(_cube[1])
+	_cube.cube[1] = reverseFace(_cube.cube[1])
 	referenceCube := _cube
 
 	// The direction changes loop and shift
@@ -146,12 +149,12 @@ func rotateY(cube [6][3][3]rune, move Move) [6][3][3]rune {
 
 	for _, i := range ii { // Iterate over faces
 		for j := 0; j < 3; j++ { // Iterate over Rows
-			_cube[AxisRelation[1][i]][j][move.Line] = referenceCube[AxisRelation[1][(i+shift)%4]][j][move.Line]
+			_cube.cube[AxisRelation[1][i]][j][move.Line] = referenceCube.cube[AxisRelation[1][(i+shift)%4]][j][move.Line]
 		}
 	}
 
 	// Undo the reversion
-	_cube[1] = reverseFace(_cube[1])
+	_cube.cube[1] = reverseFace(_cube.cube[1])
 
 	// Rotate left or right face
 	switch move.Line {
@@ -164,15 +167,15 @@ func rotateY(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	return _cube
 }
 
-func rotateZ(cube [6][3][3]rune, move Move) [6][3][3]rune {
+func rotateZ(cube Cube, move Move) Cube {
 	var ii [4]int
 	var shift int
 	_cube := cube
 
 	// Account for rows/columns reversion
-	_cube[2] = reverseFace(_cube[2])
-	_cube[4] = reverseRows(_cube[4])
-	_cube[5] = reverseCols(_cube[5])
+	_cube.cube[2] = reverseFace(_cube.cube[2])
+	_cube.cube[4] = reverseRows(_cube.cube[4])
+	_cube.cube[5] = reverseCols(_cube.cube[5])
 	referenceCube := _cube
 
 	// The direction changes loop and shift
@@ -187,19 +190,19 @@ func rotateZ(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	for _, i := range ii { // Iterate over faces
 		if i%2 == 0 { // Left and right use columns, up and bottom use rows
 			for j := 0; j < 3; j++ { // Iterate over elements
-				_cube[AxisRelation[2][i]][j][move.Line] = referenceCube[AxisRelation[2][(i+shift)%4]][move.Line][j]
+				_cube.cube[AxisRelation[2][i]][j][move.Line] = referenceCube.cube[AxisRelation[2][(i+shift)%4]][move.Line][j]
 			}
 		} else {
 			for j := 0; j < 3; j++ { // Iterate over elements
-				_cube[AxisRelation[2][i]][move.Line][j] = referenceCube[AxisRelation[2][(i+shift)%4]][j][move.Line]
+				_cube.cube[AxisRelation[2][i]][move.Line][j] = referenceCube.cube[AxisRelation[2][(i+shift)%4]][j][move.Line]
 			}
 		}
 	}
 
 	// Undo the reversion
-	_cube[2] = reverseFace(_cube[2])
-	_cube[4] = reverseRows(_cube[4])
-	_cube[5] = reverseCols(_cube[5])
+	_cube.cube[2] = reverseFace(_cube.cube[2])
+	_cube.cube[4] = reverseRows(_cube.cube[4])
+	_cube.cube[5] = reverseCols(_cube.cube[5])
 
 	// Rotate front or back face
 	switch move.Line {
@@ -212,8 +215,8 @@ func rotateZ(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	return _cube
 }
 
-func MoveCube(cube [6][3][3]rune, move Move) [6][3][3]rune {
-	var _cube [6][3][3]rune
+func MoveCube(cube Cube, move Move) Cube {
+	var _cube Cube
 
 	switch move.Axis {
 	case 0:
@@ -227,7 +230,7 @@ func MoveCube(cube [6][3][3]rune, move Move) [6][3][3]rune {
 	return _cube
 }
 
-func scrambleCube(cube [6][3][3]rune, nMoves int) ([6][3][3]rune, []string) {
+func scrambleCube(cube Cube, nMoves int) (Cube, []string) {
 	var moves []string
 	_cube := cube
 
@@ -240,7 +243,7 @@ func scrambleCube(cube [6][3][3]rune, nMoves int) ([6][3][3]rune, []string) {
 	return _cube, moves
 }
 
-func InitializeScrambledCube(nMoves int) [6][3][3]rune {
+func InitializeScrambledCube(nMoves int) Cube {
 	cube := initializeCube()
 
 	cube, _ = scrambleCube(cube, nMoves)
@@ -256,26 +259,26 @@ func stringifyLine(line [3]rune) string {
 	return strLine
 }
 
-func PrintCube(cube [6][3][3]rune) {
+func PrintCube(cube Cube) {
 	// top face
 	for i := 0; i < 3; i++ {
-		fmt.Println(blank, stringifyLine(cube[4][i]))
+		fmt.Println(blank, stringifyLine(cube.cube[4][i]))
 	}
 	fmt.Println()
 
 	// left, front, right and back face
 	for i := 0; i < 3; i++ {
 		fmt.Println(
-			stringifyLine(cube[2][i]),
-			stringifyLine(cube[0][i]),
-			stringifyLine(cube[3][i]),
-			stringifyLine(cube[1][i]),
+			stringifyLine(cube.cube[2][i]),
+			stringifyLine(cube.cube[0][i]),
+			stringifyLine(cube.cube[3][i]),
+			stringifyLine(cube.cube[1][i]),
 		)
 	}
 	fmt.Println()
 
 	// top bottom
 	for i := 0; i < 3; i++ {
-		fmt.Println(blank, stringifyLine(cube[5][i]))
+		fmt.Println(blank, stringifyLine(cube.cube[5][i]))
 	}
 }
