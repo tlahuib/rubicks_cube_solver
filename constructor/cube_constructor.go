@@ -234,17 +234,18 @@ func MoveCube(cube Cube, move Move) Cube {
 }
 
 func CheckSolvedCube(cube Cube) Cube {
+	_cube := cube
 	for i := 0; i < 6; i++ {
 		for j := 0; j < 3; j++ {
-			for k := 0; k < 6; k++ {
+			for k := 0; k < 3; k++ {
 				if cube.Cube[i][j][k] != cube.Cube[i][0][0] {
-					return cube
+					_cube.IsSolved = false
+					return _cube
 				}
 			}
 		}
 	}
 
-	_cube := cube
 	_cube.IsSolved = true
 	return _cube
 }
