@@ -35,8 +35,10 @@ func pingStatus(states *int, cycle *int) {
 }
 
 func main() {
+	var solution cc.Cube
 	states := make(map[cc.Cube][]string)
-	cube := cc.InitializeScrambledCube(50)
+	n := 10
+	cube := cc.InitializeScrambledCube(n)
 	queue := []cc.Cube{cube}
 
 	states[cube] = []string{}
@@ -45,8 +47,8 @@ func main() {
 	statesVisited := 0
 	go pingStatus(&statesVisited, &i)
 
-	for ; ; i++ {
-		elementCount := 0
+solver:
+	for ; i < n; i++ {
 		for _, sourceCube := range queue {
 			prospects := visitNextStates(sourceCube, states[sourceCube])
 			for prospect, history := range prospects {
@@ -55,13 +57,22 @@ func main() {
 					// Update map
 					states[prospect] = history
 
+					// Check if solved
+					if prospect.IsSolved {
+						solution = prospect
+						break solver
+					}
+
 					// Update Queue
-					elementCount += 1
 					statesVisited += 1
 					queue = append(queue, prospect)
-					queue = queue[1:]
 				}
 			}
+			// Remove from Queue
+			queue = queue[1:]
 		}
 	}
+
+	fmt.Println(states[solution])
+	cc.PrintCube(solution)
 }
