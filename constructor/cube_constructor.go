@@ -1,8 +1,13 @@
-package cube
+package main
 
 import (
+	"encoding/csv"
 	"fmt"
+	"io"
+	"log"
 	"math/rand"
+	"os"
+	"strconv"
 )
 
 type Cube struct {
@@ -41,6 +46,14 @@ var MoveNotation = map[Move]string{
 	{Axis: 2, Line: 1, Direction: true}:  "S",
 	{Axis: 2, Line: 2, Direction: false}: "B",
 	{Axis: 2, Line: 2, Direction: true}:  "B'",
+}
+var faceDistances = map[[2]int]int{
+	{0, 0}: 0, {0, 1}: 2, {0, 2}: -1, {0, 3}: 1, {0, 4}: 1, {0, 5}: -1,
+	{1, 0}: -2, {1, 1}: 0, {1, 2}: 1, {1, 3}: -1, {1, 4}: -1, {1, 5}: 1,
+	{2, 0}: 1, {2, 1}: -1, {2, 2}: 0, {2, 3}: 2, {2, 4}: 1, {2, 5}: -1,
+	{3, 0}: -1, {3, 1}: 1, {3, 2}: -2, {3, 3}: 0, {3, 4}: -1, {3, 5}: 1,
+	{4, 0}: -1, {4, 1}: 1, {4, 2}: -1, {4, 3}: 1, {4, 4}: 0, {4, 5}: 2,
+	{5, 0}: 1, {5, 1}: -1, {5, 2}: 1, {5, 3}: -1, {5, 4}: -2, {5, 5}: 0,
 }
 
 func initializeCube() Cube {
@@ -259,7 +272,6 @@ func scrambleCube(cube Cube, nMoves int) (Cube, []string) {
 		moves = append(moves, MoveNotation[move])
 		_cube = MoveCube(_cube, move)
 	}
-
 	return _cube, moves
 }
 
@@ -301,4 +313,123 @@ func PrintCube(cube Cube) {
 	for i := 0; i < 3; i++ {
 		fmt.Println(blank, stringifyLine(cube.Cube[5][i]))
 	}
+}
+
+func GetFacePositions(cube Cube) map[rune]int {
+	// Output order is 'w', 'y', 'g', 'b', 'r', 'o'
+	// Face order is:
+	//      |---|
+	//      |-4-|
+	//      |---|
+	// |---||---||---||---|
+	// |-2-||-0-||-3-||-1-|
+	// |---||---||---||---|
+	//      |---|
+	//      |-5-|
+	//      |---|
+
+	positions := make(map[rune]int)
+	for i := 0; i < 6; i++ {
+		positions[cube.Cube[i][1][1]] = i
+	}
+
+	return positions
+}
+
+func EmbedCube(cube Cube) [54]int {
+	var embed [54]int
+	var tilePosition int
+
+	positions := GetFacePositions(cube)
+	for _, pos := range positions {
+		for row := 0; row < 3; row++ {
+			for col := 0; col < 3; col++ {
+				tilePosition = positions[cube.Cube[pos][row][col]]
+				embed[pos*9+row*3+col] = faceDistances[[2]int{pos, tilePosition}]
+			}
+		}
+	}
+
+	return embed
+}
+
+func scrambleEmbed(steps int, c chan []int) {
+	for i := 0; i < steps; i++ {
+		nMoves := rand.Intn(25) + 1
+		cube := InitializeScrambledCube(nMoves)
+		embed := EmbedCube(cube)
+
+		c <- append([]int{nMoves}, embed[:]...)
+	}
+}
+
+func main() {
+	var joined []int
+	var newMoves int
+	var embed [54]int
+	var solves [55]string
+
+	// Check for saved solves
+	fRead, errRead := os.Open("solves.csv")
+	if errRead != nil {
+		log.Fatal(errRead)
+	}
+
+	bestSolves := make(map[[54]int]int)
+	csvReader := csv.NewReader(fRead)
+	for {
+		rec, err := csvReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for i := 0; i < 54; i++ {
+			embed[i], _ = strconv.Atoi(rec[i])
+		}
+		newMoves, _ = strconv.Atoi(rec[54])
+
+		bestSolves[embed] = newMoves
+	}
+	fRead.Close()
+
+	// Create new solves
+	c := make(chan []int, 100)
+	steps := 10000000
+
+	go scrambleEmbed(steps, c)
+
+	for i := 0; i < steps; i++ {
+		joined = <-c
+		newMoves = joined[0]
+		copy(embed[:], joined[1:])
+
+		if oldMoves, ok := bestSolves[embed]; ok {
+			if newMoves < oldMoves {
+				bestSolves[embed] = newMoves
+			}
+		} else {
+			bestSolves[embed] = newMoves
+		}
+	}
+
+	// Write
+	fWrite, errWrite := os.Create("solves.csv")
+	if errWrite != nil {
+		log.Fatal(errWrite)
+	}
+	csvwriter := csv.NewWriter(fWrite)
+	defer csvwriter.Flush()
+
+	for embed, nMoves := range bestSolves {
+		for i, val := range embed {
+			solves[i] = strconv.Itoa(val)
+		}
+		solves[54] = strconv.Itoa(nMoves)
+
+		csvwriter.Write(solves[:])
+	}
+
 }
