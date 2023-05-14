@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 )
 
 type Cube struct {
@@ -10,9 +11,9 @@ type Cube struct {
 	IsSolved bool
 }
 type Piece struct {
-	Colors   []rune
-	Location [3]int
-	Rotation []int // Same shape as colors. Each color references a face (0, 5)
+	Colors          []rune
+	CorrectLocation [3]int
+	Rotation        []int // Same shape as colors. Each color references a face (0, 5)
 }
 type Move struct {
 	Axis      int
@@ -22,24 +23,24 @@ type Move struct {
 
 var solvedCube = [][][][]rune{
 	{
-		{{'w', 'g', 'r'}, {'w', 'r'}, {'w', 'b', 'r'}},
-		{{'w', 'g'}, {'w'}, {'w', 'b'}},
-		{{'w', 'g', 'o'}, {'w', 'o'}, {'w', 'b', 'o'}},
+		{{'w', 'b', 'r'}, {'w', 'r'}, {'w', 'g', 'r'}},
+		{{'w', 'b'}, {'w'}, {'w', 'g'}},
+		{{'w', 'b', 'o'}, {'w', 'o'}, {'w', 'g', 'o'}},
 	}, {
-		{{'g', 'r'}, {'r'}, {'b', 'r'}},
-		{{'g'}, {}, {'b'}},
-		{{'g', 'o'}, {'o'}, {'b', 'o'}},
+		{{'b', 'r'}, {'r'}, {'g', 'r'}},
+		{{'b'}, {}, {'g'}},
+		{{'b', 'o'}, {'o'}, {'g', 'o'}},
 	}, {
-		{{'y', 'g', 'r'}, {'y', 'r'}, {'y', 'b', 'r'}},
-		{{'y', 'g'}, {'y'}, {'y', 'b'}},
-		{{'y', 'g', 'o'}, {'y', 'o'}, {'y', 'b', 'o'}},
+		{{'y', 'b', 'r'}, {'y', 'r'}, {'y', 'g', 'r'}},
+		{{'y', 'b'}, {'y'}, {'y', 'g'}},
+		{{'y', 'b', 'o'}, {'y', 'o'}, {'y', 'g', 'o'}},
 	},
 }
 var faceColors = map[rune]int{
 	'w': 0,
 	'y': 1,
-	'g': 2,
-	'b': 3,
+	'b': 2,
+	'g': 3,
 	'r': 4,
 	'o': 5,
 }
@@ -72,41 +73,39 @@ var pieceToFace = map[[3]int]map[int][2]int{
 	{2, 2, 1}: {5: {2, 1}, 1: {2, 1}},
 	{2, 2, 2}: {1: {2, 0}, 3: {2, 2}, 5: {2, 2}},
 }
+var zFaces = map[bool][6]int{
+	true:  {0, 1, 4, 5, 3, 2},
+	false: {0, 1, 5, 4, 2, 3},
+}
+var yFaces = map[bool][6]int{
+	true:  {4, 5, 2, 3, 1, 0},
+	false: {5, 4, 2, 3, 0, 1},
+}
+var xFaces = map[bool][6]int{
+	true:  {3, 2, 0, 1, 4, 5},
+	false: {2, 3, 1, 0, 4, 5},
+}
 var blank string = "         "
-
-// var AxisRelation = [3][4]int8{
-// 	{0, 3, 1, 2}, // Axis x, moves front, right, back and left faces
-// 	{0, 4, 1, 5}, // Axis y, moves front, top, back and bottom faces
-// 	{2, 4, 3, 5}, // Axis z, moves left, top, right and bottom faces
-// }
-// var MoveNotation = map[Move]string{
-// 	{Axis: 0, Line: 0, Direction: false}: "U",
-// 	{Axis: 0, Line: 0, Direction: true}:  "U'",
-// 	{Axis: 0, Line: 1, Direction: false}: "E'",
-// 	{Axis: 0, Line: 1, Direction: true}:  "E",
-// 	{Axis: 0, Line: 2, Direction: false}: "D'",
-// 	{Axis: 0, Line: 2, Direction: true}:  "D",
-// 	{Axis: 1, Line: 0, Direction: false}: "L",
-// 	{Axis: 1, Line: 0, Direction: true}:  "L'",
-// 	{Axis: 1, Line: 1, Direction: false}: "M",
-// 	{Axis: 1, Line: 1, Direction: true}:  "M'",
-// 	{Axis: 1, Line: 2, Direction: false}: "R'",
-// 	{Axis: 1, Line: 2, Direction: true}:  "R",
-// 	{Axis: 2, Line: 0, Direction: false}: "F'",
-// 	{Axis: 2, Line: 0, Direction: true}:  "F",
-// 	{Axis: 2, Line: 1, Direction: false}: "S'[layer][row][col]",
-// 	{Axis: 2, Line: 1, Direction: true}:  "S",
-// 	{Axis: 2, Line: 2, Direction: false}: "B",
-// 	{Axis: 2, Line: 2, Direction: true}:  "B'",
-// }
-// var faceDistances = map[[2]int]int{
-// 	{0, 0}: 0, {0, 1}: 2, {0, 2}: -1, {0, 3}: 1, {0, 4}: 1, {0, 5}: -1,
-// 	{1, 0}: -2, {1, 1}: 0, {1, 2}: 1, {1, 3}: -1, {1, 4}: -1, {1, 5}: 1,
-// 	{2, 0}: 1, {2, 1}: -1, {2, 2}: 0, {2, 3}: 2, {2, 4}: 1, {2, 5}: -1,
-// 	{3, 0}: -1, {3, 1}: 1, {3, 2}: -2, {3, 3}: 0, {3, 4}: -1, {3, 5}: 1,
-// 	{4, 0}: -1, {4, 1}: 1, {4, 2}: -1, {4, 3}: 1, {4, 4}: 0, {4, 5}: 2,
-// 	{5, 0}: 1, {5, 1}: -1, {5, 2}: 1, {5, 3}: -1, {5, 4}: -2, {5, 5}: 0,
-// }
+var MoveNotation = map[Move]string{
+	{Axis: 0, Line: 0, Direction: false}: "U",
+	{Axis: 0, Line: 0, Direction: true}:  "U'",
+	{Axis: 0, Line: 1, Direction: false}: "E'",
+	{Axis: 0, Line: 1, Direction: true}:  "E",
+	{Axis: 0, Line: 2, Direction: false}: "D'",
+	{Axis: 0, Line: 2, Direction: true}:  "D",
+	{Axis: 1, Line: 0, Direction: false}: "L",
+	{Axis: 1, Line: 0, Direction: true}:  "L'",
+	{Axis: 1, Line: 1, Direction: false}: "M",
+	{Axis: 1, Line: 1, Direction: true}:  "M'",
+	{Axis: 1, Line: 2, Direction: false}: "R'",
+	{Axis: 1, Line: 2, Direction: true}:  "R",
+	{Axis: 2, Line: 0, Direction: false}: "F'",
+	{Axis: 2, Line: 0, Direction: true}:  "F",
+	{Axis: 2, Line: 1, Direction: false}: "S'",
+	{Axis: 2, Line: 1, Direction: true}:  "S",
+	{Axis: 2, Line: 2, Direction: false}: "B",
+	{Axis: 2, Line: 2, Direction: true}:  "B'",
+}
 
 func getInitialRotations(colors []rune) []int {
 	var rotations []int
@@ -129,7 +128,7 @@ func initializeCube() Cube {
 				colors := solvedCube[layer][row][col]
 				location := [3]int{layer, row, col}
 				rotation := getInitialRotations(colors)
-				cube.Pieces[layer][row][col] = Piece{Colors: colors, Location: location, Rotation: rotation}
+				cube.Pieces[layer][row][col] = Piece{Colors: colors, CorrectLocation: location, Rotation: rotation}
 			}
 		}
 	}
@@ -138,234 +137,138 @@ func initializeCube() Cube {
 	return cube
 }
 
-// func rotateFace(cube Cube, face int, direction bool) Cube {
-// 	_cube := cube
-// 	for i := 0; i < 3; i++ {
-// 		for j := 0; j < 3; j++ {
-// 			if direction {
-// 				_cube.Cube[face][j][2-i] = cube.Cube[face][i][j]
-// 			} else {
-// 				_cube.Cube[face][2-j][i] = cube.Cube[face][i][j]
-// 			}
-// 		}
-// 	}
-// 	return _cube
-// }
+func moveZ(cube Cube, section int, direction bool) Cube {
+	var newPiece Piece
+	_cube := cube
 
-// func reverseRows(face [3][3]rune) [3][3]rune {
-// 	reversedRows := face
+	for row := 0; row < 3; row++ {
+		for col := 0; col < 3; col++ {
+			// Select the new piece for the location
+			if direction {
+				newPiece = cube.Pieces[section][2-col][row]
+			} else {
+				newPiece = cube.Pieces[section][col][2-row]
+			}
 
-// 	reversedRows[0], reversedRows[2] = reversedRows[2], reversedRows[0]
+			// Rotate new piece accordingly
+			for i, r := range newPiece.Rotation {
+				newPiece.Rotation[i] = zFaces[direction][r]
+			}
 
-// 	return reversedRows
-// }
+			// Substitute the piece
+			_cube.Pieces[section][row][col] = newPiece
+		}
+	}
 
-// func reverseCols(face [3][3]rune) [3][3]rune {
-// 	reversedCols := face
+	return _cube
+}
 
-// 	for i := 0; i < 3; i++ {
-// 		reversedCols[i][0], reversedCols[i][2] = reversedCols[i][2], reversedCols[i][0]
-// 	}
+func moveY(cube Cube, col int, direction bool) Cube {
+	var newPiece Piece
+	_cube := cube
 
-// 	return reversedCols
-// }
+	for section := 0; section < 3; section++ {
+		for row := 0; row < 3; row++ {
+			// Select the new piece for the location
+			if direction {
+				newPiece = cube.Pieces[row][2-section][col]
+			} else {
+				newPiece = cube.Pieces[2-row][section][col]
+			}
 
-// func reverseFace(face [3][3]rune) [3][3]rune {
-// 	reversedFace := face
+			// Rotate new piece accordingly
+			for i, r := range newPiece.Rotation {
+				newPiece.Rotation[i] = yFaces[direction][r]
+			}
 
-// 	reversedFace = reverseCols(reversedFace)
-// 	reversedFace = reverseRows(reversedFace)
+			// Substitute the piece
+			_cube.Pieces[section][row][col] = newPiece
+			// cube, moves := scrambleCube(cube, 5)
+		}
+	}
 
-// 	return reversedFace
-// }
+	return _cube
+}
 
-// func rotateX(cube Cube, move Move) Cube {
-// 	var ii [4]int
-// 	var shift int
-// 	_cube := cube
+func moveX(cube Cube, row int, direction bool) Cube {
+	var newPiece Piece
+	_cube := cube
 
-// 	// The direction changes loop and shift
-// 	if move.Direction {
-// 		ii = [4]int{3, 2, 1, 0}
-// 		shift = 3
-// 	} else {
-// 		ii = [4]int{0, 1, 2, 3}
-// 		shift = 1
-// 	}
+	for section := 0; section < 3; section++ {
+		for col := 0; col < 3; col++ {
+			// Select the new piece for the location
+			if direction {
+				newPiece = cube.Pieces[2-col][row][section]
+			} else {
+				newPiece = cube.Pieces[col][row][2-section]
+			}
 
-// 	// Iterate over rows// Face order is:
-// 	//      |---|
-// 	//      |-4-|
-// 	//      |---|
-// 	// |---||---||---||---|
-// 	// |-2-||-0-||-3-||-1-|
-// 	// |---||---||---||---|
-// 	//      |---|
-// 	//      |-5-|
-// 	//      |---|
-// 	for _, i := range ii {
-// 		_cube.Cube[AxisRelation[0][i]][move.Line] = cube.Cube[AxisRelation[0][(i+shift)%4]][move.Line]
-// 	}
+			// Rotate new piece accordingly
+			for i, r := range newPiece.Rotation {
+				newPiece.Rotation[i] = xFaces[direction][r]
+			}
 
-// 	// Rotate top or bottom face
-// 	switch move.Line {
-// 	case 0:
-// 		_cube = rotateFace(_cube, 4, !move.Direction)
-// 	case 2:
-// 		_cube = rotateFace(_cube, 5, move.Direction)
-// 	}
+			// Substitute the piece
+			_cube.Pieces[section][row][col] = newPiece
+		}
+	}
 
-// 	return _cube
-// }
+	return _cube
+}
 
-// func rotateY(cube Cube, move Move) Cube {
-// 	var ii [4]int
-// 	var shift int
-// 	_cube := cube
+func MoveCube(cube Cube, move Move) Cube {
+	var _cube Cube
 
-// 	// Account for the back being reversed
-// 	_cube.Cube[1] = reverseFace(_cube.Cube[1])
-// 	referenceCube := _cube
+	switch move.Axis {
+	case 0:
+		_cube = moveX(cube, move.Line, move.Direction)
+	case 1:
+		_cube = moveY(cube, move.Line, move.Direction)
+	case 2:
+		_cube = moveZ(cube, move.Line, move.Direction)
+	}
 
-// 	// The direction changes loop and shift
-// 	if move.Direction {
-// 		ii = [4]int{3, 2, 1, 0}
-// 		shift = 3
-// 	} else {
-// 		ii = [4]int{0, 1, 2, 3}
-// 		shift = 1
-// 	}
+	_cube = CheckSolvedCube(_cube)
+	return _cube
+}
 
-// 	for _, i := range ii { // Iterate over faces
-// 		for j := 0; j < 3; j++ { // Iterate over Rows
-// 			_cube.Cube[AxisRelation[1][i]][j][move.Line] = referenceCube.Cube[AxisRelation[1][(i+shift)%4]][j][move.Line]
-// 		}
-// 	}
+func CheckSolvedCube(cube Cube) Cube {
+	_cube := cube
+	for section := 0; section < 3; section++ {
+		for row := 0; row < 3; row++ {
+			for col := 0; col < 3; col++ {
+				piece := cube.Pieces[section][row][col]
+				if [3]int{section, row, col} != piece.CorrectLocation {
+					_cube.IsSolved = false
+					return _cube
+				}
+			}
+		}
+	}
 
-// 	// Undo the reversion
-// 	_cube.Cube[1] = reverseFace(_cube.Cube[1])
+	_cube.IsSolved = true
+	return _cube
+}
 
-// 	// Rotate left or right face// Output order is 'w', 'y', 'g', 'b', 'r', 'o'
-// 	// Face order is:
-// 	//      |---|
-// 	//      |-4-|
-// 	//      |---|
-// 	// |---||---||---||---|
-// 	// |-2-||-0-||-3-||-1-|
-// 	// |---||---||---||---|
-// 	//      |---|
-// 	//      |-5-|
-// 	//      |---|
-// 	switch move.Line {
-// 	case 0:
-// 		_cube = rotateFace(_cube, 2, !move.Direction)
-// 	case 2:
-// 		_cube = rotateFace(_cube, 3, move.Direction)
-// 	}
+func scrambleCube(cube Cube, nMoves int) (Cube, []string) {
+	var moves []string
+	_cube := cube
 
-// 	return _cube
-// }
+	for i := 0; i < nMoves; i++ {
+		move := Move{rand.Intn(3), rand.Intn(3), rand.Float32() <= 0.5}
+		moves = append(moves, MoveNotation[move])
+		_cube = MoveCube(_cube, move)
+	}
+	return _cube, moves
+}
 
-// func rotateZ(cube Cube, move Move) Cube {
-// 	var ii [4]int
-// 	var shift int
-// 	_cube := cube
+func InitializeScrambledCube(nMoves int) Cube {
+	cube := initializeCube()
 
-// 	// Account for rows/columns reversion
-// 	_cube.Cube[2] = reverseFace(_cube.Cube[2])
-// 	_cube.Cube[4] = reverseRows(_cube.Cube[4])
-// 	_cube.Cube[5] = reverseCols(_cube.Cube[5])
-// 	referenceCube := _cube
+	cube, _ = scrambleCube(cube, nMoves)
 
-// 	// The direction changes loop and shift
-// 	if move.Direction {
-// 		ii = [4]int{3, 2, 1, 0}
-// 		shift = 3
-// 	} else {
-// 		ii = [4]int{0, 1, 2, 3}
-// 		shift = 1
-// 	}
-
-// 	for _, i := range ii { // Iterate over faces
-// 		if i%2 == 0 { // Left and right use columns, up and bottom use rows
-// 			for j := 0; j < 3; j++ { // Iterate over elements
-// 				_cube.Cube[AxisRelation[2][i]][j][move.Line] = referenceCube.Cube[AxisRelation[2][(i+shift)%4]][move.Line][j]
-// 			}
-// 		} else {
-// 			for j := 0; j < 3; j++ { // Iterate over elements
-// 				_cube.Cube[AxisRelation[2][i]][move.Line][j] = referenceCube.Cube[AxisRelation[2][(i+shift)%4]][j][move.Line]
-// 			}
-// 		}
-// 	}
-
-// 	// Undo the reversion
-// 	_cube.Cube[2] = reverseFace(_cube.Cube[2])
-// 	_cube.Cube[4] = reverseRows(_cube.Cube[4])
-// 	_cube.Cube[5] = reverseCols(_cube.Cube[5])
-
-// 	// Rotate front or back face
-// 	switch move.Line {
-// 	case 0:
-// 		_cube = rotateFace(_cube, 0, move.Direction)
-// 	case 2:
-// 		_cube = rotateFace(_cube, 1, !move.Direction)
-// 	}
-
-// 	return _cube
-// }
-
-// func MoveCube(cube Cube, move Move) Cube {
-// 	var _cube Cube
-
-// 	switch move.Axis {
-// 	case 0:
-// 		_cube = rotateX(cube, move)
-// 	case 1:
-// 		_cube = rotateY(cube, move)
-// 	case 2:
-// 		_cube = rotateZ(cube, move)
-// 	}
-
-// 	_cube = CheckSolvedCube(_cube)
-// 	return _cube
-// }
-
-// func CheckSolvedCube(cube Cube) Cube {
-// 	_cube := cube
-// 	for i := 0; i < 6; i++ {
-// 		for j := 0; j < 3; j++ {
-// 			for k := 0; k < 3; k++ {
-// 				if cube.Cube[i][j][k] != cube.Cube[i][0][0] {
-// 					_cube.IsSolved = false
-// 					return _cube
-// 				}
-// 			}
-// 		}
-// 	}
-
-// 	_cube.IsSolved = true
-// 	return _cube
-// }
-
-// func scrambleCube(cube Cube, nMoves int) (Cube, []string) {
-// 	var moves []string
-// 	_cube := cube
-
-// 	for i := 0; i < nMoves; i++ {
-// 		move := Move{rand.Intn(3), rand.Intn(3), rand.Float32() <= 0.5}
-// 		moves = append(moves, MoveNotation[move])
-// 		_cube = MoveCube(_cube, move)
-// 	}
-// 	return _cube, moves
-// }
-
-// func InitializeScrambledCube(nMoves int) Cube {
-// 	cube := initializeCube()
-
-// 	cube, _ = scrambleCube(cube, nMoves)
-
-// 	return cube
-// }
+	return cube
+}
 
 func stringifyLine(line [3]rune) string {
 	var strLine string
@@ -382,7 +285,7 @@ func CubeToFaces(cube Cube) [6][3][3]rune {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
 				piece := cube.Pieces[layer][row][col]
-				faceMap := pieceToFace[piece.Location]
+				faceMap := pieceToFace[[3]int{layer, row, col}]
 				for i, faceColor := range piece.Colors {
 					face := piece.Rotation[i]
 					coord := faceMap[face]
@@ -416,7 +319,7 @@ func PrintCube(cube Cube) {
 	}
 	fmt.Println()
 
-	// top bottom
+	// top bottomPosition
 	for i := 0; i < 3; i++ {
 		fmt.Println(blank, stringifyLine(faces[5][i]))
 	}
@@ -441,16 +344,11 @@ func PrintCube(cube Cube) {
 // 	}
 
 // 	return positions
-// }
-
-// func EmbedCube(cube Cube) [54]int {
-// 	var embed [54]int
-// 	var tilePosition int
-
+// } x y z M E S
 // 	positions := GetFacePositions(cube)
 // 	for _, pos := range positions {
 // 		for row := 0; row < 3; row++ {
-// 			for col := 0; col < 3; col++ {
+// 			for col := 0; col < 3; col++ {fmt.Println(cube)
 // 				tilePosition = positions[cube.Cube[pos][row][col]]
 // 				embed[pos*9+row*3+col] = faceDistances[[2]int{pos, tilePosition}]
 // 			}
@@ -461,7 +359,7 @@ func PrintCube(cube Cube) {
 // }
 
 // func scrambleEmbed(steps int, c chan []int) {
-// 	for i := 0; i < steps; i++ {
+// 	for i := 0; i < steps; i++ { x y z M E S
 // 		nMoves := rand.Intn(25) + 1
 // 		cube := InitializeScrambledCube(nMoves)
 // 		embed := EmbedCube(cube)
@@ -479,20 +377,16 @@ func PrintCube(cube Cube) {
 // 	// Check for saved solves
 // 	fRead, errRead := os.Open("solves.csv")
 // 	if errRead != nil {
-// 		log.Fatal(errRead)
+// 		log.Fatal(errRead)fmt.Println(cube)
 // 	}
 
-// 	bestSolves := make(map[[54]int]int)
-// 	csvReader := csv.NewReader(fRead)
-// 	for {
-// 		rec, err := csvReader.Read()
+// 	bestSolves := make(map[[54]int]int)fmt.Println(cube)
 // 		if err == io.EOF {
 // 			break
 // 		}
 // 		if err != nil {
 // 			log.Fatal(err)
 // 		}
-
 // 		for i := 0; i < 54; i++ {
 // 			embed[i], _ = strconv.Atoi(rec[i])
 // 		}
@@ -504,17 +398,7 @@ func PrintCube(cube Cube) {
 
 // 	// Create new solves
 // 	c := make(chan []int, 100)
-// 	steps := 10000000
-
-// 	go scrambleEmbed(steps, c)
-
-// 	for i := 0; i < steps; i++ {
-// 		joined = <-c
-// 		newMoves = joined[0]
-// 		copy(embed[:], joined[1:])
-
-// 		if oldMoves, ok := bestSolves[embed]; ok {
-// 			if newMoves < oldMoves {
+// 	steps := 10000000= moveX(cube, 2, false)
 // 				bestSolves[embed] = newMoves
 // 			}
 // 		} else {
