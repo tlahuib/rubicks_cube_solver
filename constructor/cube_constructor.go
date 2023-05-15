@@ -17,9 +17,8 @@ type Cube struct {
 	IsSolved bool
 }
 type Piece struct {
-	Colors          []rune
-	CorrectLocation [3]int
-	Rotation        []int // Same shape as colors. Each color references a face (0, 5)
+	Colors   []rune
+	Rotation []int // Same shape as colors. Each color references a face (0, 5)
 }
 type Move struct {
 	Axis      int
@@ -42,7 +41,7 @@ var solvedCube = [][][][]rune{
 		{{'y', 'b', 'o'}, {'y', 'o'}, {'y', 'g', 'o'}},
 	},
 }
-var faceColors = map[rune]int{
+var initialFaceColors = map[rune]int{
 	'w': 0,
 	'y': 1,
 	'b': 2,
@@ -112,12 +111,16 @@ var MoveNotation = map[Move]string{
 	{Axis: 2, Line: 2, Direction: false}: "B",
 	{Axis: 2, Line: 2, Direction: true}:  "B'",
 }
+var centerPieces = [6][3]int{
+	{0, 1, 1}, {2, 1, 1}, {1, 1, 0},
+	{1, 1, 2}, {1, 0, 1}, {1, 2, 1},
+}
 
 func getInitialRotations(colors []rune) []int {
 	var rotations []int
 
 	for _, color := range colors {
-		rotations = append(rotations, faceColors[color])
+		rotations = append(rotations, initialFaceColors[color])
 	}
 
 	return rotations
@@ -132,9 +135,8 @@ func initializeCube() Cube {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
 				colors := solvedCube[layer][row][col]
-				location := [3]int{layer, row, col}
 				rotation := getInitialRotations(colors)
-				cube.Pieces[layer][row][col] = Piece{Colors: colors, CorrectLocation: location, Rotation: rotation}
+				cube.Pieces[layer][row][col] = Piece{Colors: colors, Rotation: rotation}
 			}
 		}
 	}
@@ -223,28 +225,77 @@ func moveX(cube Cube, row int, direction bool) Cube {
 }
 
 func MoveCube(cube Cube, move Move) Cube {
-	var _cube Cube
+	_cube := cube
 
 	switch move.Axis {
 	case 0:
-		_cube = moveX(cube, move.Line, move.Direction)
+		_cube = moveX(_cube, move.Line, move.Direction)
 	case 1:
-		_cube = moveY(cube, move.Line, move.Direction)
+		_cube = moveY(_cube, move.Line, move.Direction)
 	case 2:
-		_cube = moveZ(cube, move.Line, move.Direction)
+		_cube = moveZ(_cube, move.Line, move.Direction)
 	}
 
 	_cube = CheckSolvedCube(_cube)
 	return _cube
 }
 
+func GetFaceColors(cube Cube) map[rune]int {
+	faceColors := make(map[rune]int)
+
+	for _, loc := range centerPieces {
+		piece := cube.Pieces[loc[0]][loc[1]][loc[2]]
+		faceColors[piece.Colors[0]] = piece.Rotation[0]
+	}
+
+	return faceColors
+}
+
+func GetCorrectLocation(piece Piece, faceColors map[rune]int) [3]int {
+	var face int
+	location := [3]int{1, 1, 1}
+
+	for _, color := range piece.Colors {
+		face = faceColors[color]
+
+		switch face {
+		case 0:
+			location[0] = 0
+		case 1:
+			location[0] = 2
+		case 2:
+			location[2] = 0
+		case 3:
+			location[2] = 2
+		case 4:
+			location[1] = 0
+		case 5:
+			location[1] = 2
+		}
+	}
+
+	return location
+}
+
+func CheckCorrectLocation(piece Piece, faceColors map[rune]int) bool {
+	for i, color := range piece.Colors {
+		if faceColors[color] != piece.Rotation[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
 func CheckSolvedCube(cube Cube) Cube {
 	_cube := cube
+	faceColors := GetFaceColors(_cube)
+
 	for section := 0; section < 3; section++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
-				piece := cube.Pieces[section][row][col]
-				if [3]int{section, row, col} != piece.CorrectLocation {
+				piece := _cube.Pieces[section][row][col]
+				if !CheckCorrectLocation(piece, faceColors) {
 					_cube.IsSolved = false
 					return _cube
 				}
@@ -285,6 +336,15 @@ func stringifyLine(line [3]rune) string {
 }
 
 func CubeToFaces(cube Cube) [6][3][3]rune {
+	// 		|---|
+	// 		|-4-|
+	//      |---|
+	// |---||---||---||---|
+	// |-2-||-0-||-3-||-1-|
+	// |---||---||---||---|
+	// 		|---|
+	// 		|-5-|
+	// 		|---|
 	var faces [6][3][3]rune
 
 	for layer := 0; layer < 3; layer++ {
@@ -332,30 +392,34 @@ func PrintCube(cube Cube) {
 }
 
 func EmbedCube(cube Cube) []int {
-	var locations [81]int
+	var locations []int
 	var rotations []int
-	var distances [27]int
+	var distances []int
 
-	count := 0
+	faceColors := GetFaceColors(cube)
+
 	for section := 0; section < 3; section++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
-				// The piece in the current location
-				piece := cube.Pieces[section][row][col]
+				if !((section == 1) && (row == 1) && (col == 1)) {
+					// Piece & Locations
+					piece := cube.Pieces[section][row][col]
+					currentLocation := [3]int{section, row, col}
+					correctLocation := GetCorrectLocation(piece, faceColors)
 
-				// Update locations and distances
-				currentLocation := [3]int{section, row, col}
-				distSum := 0
-				for i, loc := range piece.CorrectLocation {
-					locations[count*3+i] = loc
-					distSum += int(math.Abs(float64(currentLocation[i] - loc)))
+					// Calculate distances
+					if !((row == 1) && (col == 1)) {
+						distSum := 0
+						for i, loc := range correctLocation {
+							distSum += int(math.Abs(float64(currentLocation[i] - loc)))
+						}
+						distances = append(distances, distSum)
+					}
+
+					// Update
+					locations = append(locations, correctLocation[:]...)
+					rotations = append(rotations, piece.Rotation...)
 				}
-				distances[count] = distSum
-
-				// Update rotations
-				rotations = append(rotations, piece.Rotation...)
-
-				count++
 			}
 		}
 	}
@@ -366,21 +430,32 @@ func EmbedCube(cube Cube) []int {
 	return embed
 }
 
-func scrambleEmbed(steps int, c chan []int) {
-	for i := 0; i < steps; i++ {
-		nMoves := rand.Intn(25) + 1
-		cube := InitializeScrambledCube(nMoves)
-		embed := EmbedCube(cube)
+func scrambleEmbed(max_moves int, c chan []int) {
+	var nMoves int
+	if max_moves < 2 {
+		nMoves = 1
+	} else {
+		nMoves = rand.Intn(max_moves-1) + 1
+	}
 
-		c <- append(embed, nMoves)
+	cube := InitializeScrambledCube(nMoves)
+	embed := EmbedCube(cube)
+
+	c <- append(embed, max_moves)
+}
+
+func generateEmbeds(steps int, max_moves int, c chan []int) {
+
+	for i := 0; i < steps; i++ {
+		go scrambleEmbed(max_moves, c)
 	}
 }
 
-func readSolves(file string) map[[162]int]int {
+func readSolves(file string) map[[156]int]int {
 	var move int
-	var embed [162]int
-	n_embed := 162
-	bestSolves := make(map[[162]int]int)
+	var embed [156]int
+	n_embed := 156
+	bestSolves := make(map[[156]int]int)
 
 	// Check for saved solves
 	fRead, errRead := os.Open(file)
@@ -412,9 +487,9 @@ func readSolves(file string) map[[162]int]int {
 	return bestSolves
 }
 
-func writeSolves(bestSolves map[[162]int]int, file string) {
-	var solves [163]string
-	n_embed := 162
+func writeSolves(bestSolves map[[156]int]int, file string) {
+	var solves [157]string
+	n_embed := 156
 
 	fWrite, errWrite := os.Create("solves.csv")
 	if errWrite != nil {
@@ -436,34 +511,47 @@ func writeSolves(bestSolves map[[162]int]int, file string) {
 func main() {
 	var joined []int
 	var newMoves int
-	var embed [162]int
+	var embed [156]int
 
-	n_embed := 162
+	n_embed := 156
 	solvesFile := "solves.csv"
 	bestSolves := readSolves(solvesFile)
 
 	// Create new solves
 	c := make(chan []int, 100)
-	steps := 10000000
+	total_iter := 5e5
+	step_size := 10000
+	steps := int(total_iter / float64(step_size))
 
-	go scrambleEmbed(steps, c)
+	for max_moves := 8; max_moves < 25; max_moves++ {
+		for step := 0; step < steps; step++ {
+			fmt.Printf("\n---- Starting step %v of %v ----\n", step, steps)
+			prev_solves := len(bestSolves)
 
-	for i := 0; i < steps; i++ {
-		joined = <-c
-		newMoves = joined[n_embed]
-		copy(embed[:], joined[:n_embed])
+			go generateEmbeds(step_size, max_moves, c)
+			for i := 0; i < step_size; i++ {
+				joined = <-c
+				newMoves = joined[n_embed]
+				copy(embed[:], joined[:n_embed])
 
-		if oldMoves, ok := bestSolves[embed]; ok {
-			if newMoves < oldMoves {
-				bestSolves[embed] = newMoves
+				if oldMoves, ok := bestSolves[embed]; ok {
+					if newMoves < oldMoves {
+						bestSolves[embed] = newMoves
+					}
+				} else {
+					bestSolves[embed] = newMoves
+				}
+
+				if i%1000 == 0 {
+					percent := float32(i) / float32(step_size) * 100
+					fmt.Printf("Max_Moves: %v \t\t Step: %v \t\t -- %.2f%% --\t\t Samples: %v\n", max_moves, i, percent, len(bestSolves))
+				}
 			}
-		} else {
-			bestSolves[embed] = newMoves
-		}
 
-		if i%10000 == 0 {
-			percent := float32(i) / float32(steps) * 100
-			fmt.Printf("Step: %v \t\t -- %.2f%% --\t\t Samples: %v\n", i, percent, len(bestSolves))
+			if prev_solves == len(bestSolves) {
+				break
+			}
+
 		}
 	}
 
