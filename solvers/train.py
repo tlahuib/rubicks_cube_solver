@@ -4,7 +4,7 @@ from torch import tensor
 
 
 # Initialize models
-value_model = m.Transformer(162, 8, 6, 6, 0.2)
+value_model = m.Transformer(162, 1, 6, 6, 0.2)
 value_model = value_model.to(m.device)
 
 # Pre-train value model
@@ -18,12 +18,14 @@ while True:
     value_data = tensor(value_data).float()
 
     # Fit model
-    value_model.fit(value_data, 2000, 100, 100)
+    value_model.fit(value_data, 20000, 10, 1000)
     
     # Calculate loss
-    loss = m.estimate_loss(value_model, value_data, 100, 50)
+    loss = m.estimate_loss(value_model, value_data, 100, 10)
 
-    print(f"---- Epoch {epoch} finished with loss: {loss:.2f} ----")
+    print(f"---- Epoch {epoch} finished with loss: {loss:.2f} ----\n\n")
+    if len(value_data) < n_rows:
+        break
     epoch += 1
 
 

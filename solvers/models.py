@@ -93,7 +93,7 @@ class Block(nn.Module):
     def __init__(self, n_heads: int, n_embed: int, context_size: int, dropout: float) -> None:
         # n_embed: embedding dimension, n_head: the number of heads we'd like
         super().__init__()
-        head_size = n_embed // n_heads
+        head_size = max(n_embed // n_heads, 1)
         self.sa = MultiHeadAttention(n_heads, head_size, n_embed, context_size, dropout)
         self.ffwd = FeedFoward(n_embed, dropout)
         self.ln1 = nn.LayerNorm(n_embed)
@@ -152,13 +152,13 @@ class Transformer(nn.Module):
         validation = data[n:]
 
         for iter in range(steps):
+            self.optimizer.zero_grad(set_to_none=True)
 
             # Sample a batch
             X, y = get_batch(train, batch_size)
 
             # Evaluate the loss
             loss = self.loss(self(X), y)
-            self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
 
