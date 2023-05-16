@@ -1,27 +1,22 @@
+import argparse
+import json
+import logging
+import os
+import sys
+
+#import sagemaker_containers
+import numpy as np
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
+import torch.nn.functional as F
+import torch.optim as optim
+import torch.utils.data
 from torch import tensor
+from torch.utils.data import DataLoader, Dataset
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-
-def get_batch(data: tensor, batch_size: int, device: str = device) -> tuple[tensor, tensor]:
-    ids = torch.randint(0, len(data), (batch_size,))
-    X = data[ids].T[:-1].T.long()
-    y = data[ids].T[-1]
-    X, y = X.to(device), y.to(device)
-    return X, y
-
-
-def estimate_loss(model, data: tensor, batch_size: int, steps: int, device: str = device) -> float:
-    loss = 0
-    for _ in range(steps):
-        X, y = get_batch(data, batch_size)
-        loss += model.loss(model(X), y)
-
-    loss /= steps
-    return loss
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler(sys.stdout))
 
 
 class Head(nn.Module):
@@ -107,7 +102,7 @@ class Block(nn.Module):
 
 class Transformer(nn.Module):
 
-    def __init__(self, context_size: int, n_embed: int, n_heads: int, n_layers: int, dropout: float, learning_rate: float = 1e-4) -> None:
+    def __init__(self, context_size: int, n_embed: int, n_heads: int, n_layers: int, dropout: float) -> None:
         super().__init__()
         # Create embedding for attention
         self.embedding = nn.Embedding(context_size, n_embed)
@@ -116,11 +111,7 @@ class Transformer(nn.Module):
         self.blocks = nn.Sequential(*[Block(n_heads, n_embed, context_size, dropout) for _ in range(n_layers)])
         self.ln_f = nn.LayerNorm(n_embed) # final layer norm
         self.lm_head = nn.Linear(n_embed, 1)
-        self.ffwd = FeedFoward(context_size, 0.2, 1)
-
-        # Optimizer
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
-        self.loss = nn.MSELoss()
+        self.ffwd_result = FeedFoward(context_size, 0.2, 1)
 
         # Initialize weights
         self.apply(self._init_weights)
@@ -136,35 +127,235 @@ class Transformer(nn.Module):
     def forward(self, embed_x: tensor) -> tuple[tensor, tensor]:
         # idx and targets are both (B, T) tensor of integers
 
-        x = self.embedding(embed_x) # (B, T, C)
+        x = self.embedding(x) # (B, T, C)
         x = self.blocks(x) # (B, T, C)
         x = self.ln_f(x) # (B, T, C)
         pred = torch.squeeze(self.lm_head(x)) # (B, T)
-        pred = torch.squeeze(self.ffwd(pred)) # (B)
+        pred = torch.squeeze(self.ffwd_result(pred)) # (B)
 
         return pred
     
-    def fit(self, data: tensor, steps: int, batch_size: int, eval_iter: int = 100) -> None:
 
-        # Split into train and validation data
-        n = int(0.9 * len(data))
-        train = data[:n]
-        validation = data[n:]
+class SolvesDataset(Dataset):
+    def __init__(self, file) -> None:
+        super().__init__()
+        self.file = file
 
-        for iter in range(steps):
-            self.optimizer.zero_grad(set_to_none=True)
+    def __len__(self):
+        try:
+            return self.len
+        except AttributeError:
+            with open(self.file) as f:
+                self.len = sum(1 for _ in f)
+            return self.len
 
-            # Sample a batch
-            X, y = get_batch(train, batch_size)
+    def __getitem__(self, idx):
+        row = np.loadtxt(self.file, delimiter=',', dtype=int, max_rows=1, skiprows=idx)
 
-            # Evaluate the loss
-            loss = self.loss(self(X), y)
+        X = torch.as_tensor(row[:-1], dtype=torch.long)
+        y = torch.as_tensor(row[-1], dtype=torch.float)
+
+        return X, y
+
+
+def _get_feature_length(training_dir):
+    dataset = SolvesDataset(training_dir, train=True)
+    sample, _ = dataset[0]
+    return len(sample)
+
+
+def _get_train_data_loader(batch_size, training_dir, **kwargs):
+    logger.info("Get train data loader")
+    dataset = SolvesDataset(training_dir, train=True)
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        **kwargs
+    )
+
+
+def _get_test_data_loader(test_batch_size, testing_dir, **kwargs):
+    logger.info("Get test data loader")
+    dataset = SolvesDataset(testing_dir, train=False)
+    return DataLoader(
+        dataset,
+        batch_size=test_batch_size,
+        shuffle=True,
+        **kwargs
+    )
+
+
+def train(args):
+    use_cuda = args.num_gpus > 0
+    logger.debug("Number of gpus available - {}".format(args.num_gpus))
+    kwargs = {"num_workers": 1, "pin_memory": True} if use_cuda else {}
+    device = torch.device("cuda" if use_cuda else "cpu")
+
+    # set the seed for generating random numbers
+    torch.manual_seed(args.seed)
+    if use_cuda:
+        torch.cuda.manual_seed(args.seed)
+
+    train_loader = _get_train_data_loader(args.batch_size, args.data_dir, **kwargs)
+    test_loader = _get_test_data_loader(args.test_batch_size, args.test_data_dir, **kwargs)
+
+    logger.debug(
+        "Processes {}/{} ({:.0f}%) of train data".format(
+            len(train_loader.sampler),
+            len(train_loader.dataset),
+            100.0 * len(train_loader.sampler) / len(train_loader.dataset),
+        )
+    )
+
+    logger.debug(
+        "Processes {}/{} ({:.0f}%) of test data".format(
+            len(test_loader.sampler),
+            len(test_loader.dataset),
+            100.0 * len(test_loader.sampler) / len(test_loader.dataset),
+        )
+    )
+
+    
+    model_args = dict(
+        context_size = _get_feature_length(args.data_dir),
+        n_embed = args.n_embed,
+        n_heads = args.n_heads,
+        n_layers = args.n_layers,
+        dropout = args.dropout
+    )
+    model = Transformer(**model_args).to(device)
+    model = nn.DataParallel(model)
+
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+
+    for epoch in range(1, args.epochs + 1):
+        model.train()
+        for batch_idx, (data, target) in enumerate(train_loader, 1):
+            data, target = data.to(device), target.to(device)
+            optimizer.zero_grad()
+            output = model(data)
+            loss = F.mse_loss(output, target)
             loss.backward()
-            self.optimizer.step()
+            optimizer.step()
+            if batch_idx % args.log_interval == 0:
+                logger.info(
+                    "Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}".format(
+                        epoch,
+                        batch_idx * len(data),
+                        len(train_loader.sampler),
+                        100.0 * batch_idx / len(train_loader),
+                        loss.item(),
+                    )
+                )
+        test(model, test_loader, device)
+    save_model(model, args.model_dir)
 
 
-            # Every once in a while evaluate the loss in validation
-            if iter % eval_iter == 0:
-                train_loss = estimate_loss(self, train, batch_size, 10)
-                val_loss = estimate_loss(self, validation, batch_size, 10)
-                print(f"step {iter}: train loss {train_loss:.4f}, val loss {val_loss:.4f}")
+def test(model, test_loader, device):
+    model.eval()
+    test_loss = 0
+    with torch.no_grad():
+        for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
+            pred = model(data)
+            test_loss += F.mse_loss(pred, target, size_average=False).item()  # sum up batch loss
+
+    test_loss /= len(test_loader.dataset)
+    logger.info("Test set: Average loss: {:.4f}\n".format(test_loss))
+
+
+def model_fn(model_dir, model_args):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = torch.nn.DataParallel(Transformer(**model_args))
+    with open(os.path.join(model_dir, "model.pth"), "rb") as f:
+        model.load_state_dict(torch.load(f))
+    return model.to(device)
+
+
+def save_model(model, model_dir):
+    logger.info("Saving the model.")
+    path = os.path.join(model_dir, "model.pth")
+    # recommended way from http://pytorch.org/docs/master/notes/serialization.html
+    torch.save(model.cpu().state_dict(), path)
+
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    # Data and model checkpoints directories
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=64,
+        metavar="N",
+        help="input batch size for training (default: 64)",
+    )
+    parser.add_argument(
+        "--test-batch-size",
+        type=int,
+        default=1000,
+        metavar="N",
+        help="input batch size for testing (default: 1000)",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=10,
+        metavar="N",
+        help="number of epochs to train (default: 10)",
+    )
+    parser.add_argument(
+        "--lr", type=float, default=1e-4, metavar="LR", help="learning rate (default: 1e-4)"
+    )
+    parser.add_argument("--seed", type=int, default=1, metavar="S", help="random seed (default: 1)")
+    parser.add_argument(
+        "--log-interval",
+        type=int,
+        default=100,
+        metavar="N",
+        help="how many batches to wait before logging training status",
+    )
+
+    # Model arguments
+    parser.add_argument(
+        "--n_embed",
+        type=int,
+        default=8,
+        metavar="N",
+        help="how many embeddings per feature",
+    )
+    parser.add_argument(
+        "--n-heads",
+        type=int,
+        default=100,
+        metavar="N",
+        help="how many parallel heads of self attention",
+    )
+    parser.add_argument(
+        "--n-layers",
+        type=int,
+        default=100,
+        metavar="N",
+        help="how many blocks of multi-headed attention in sequence",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.2,
+        metavar="N",
+        help="percent of nodes disconected for dropout layers",
+    )
+
+
+    # Container environment
+    parser.add_argument("--hosts", type=list, default=json.loads(os.environ["SM_HOSTS"]))
+    parser.add_argument("--current-host", type=str, default=os.environ["SM_CURRENT_HOST"])
+    parser.add_argument("--model-dir", type=str, default=os.environ["SM_MODEL_DIR"])
+    parser.add_argument("--data-dir", type=str, default=os.environ["SM_CHANNEL_TRAINING"])
+    parser.add_argument("--test-data-dir", type=str, default=os.environ["SM_CHANNEL_TESTING"])
+    parser.add_argument("--num-gpus", type=int, default=os.environ["SM_NUM_GPUS"])
+
+    train(parser.parse_args())
+
