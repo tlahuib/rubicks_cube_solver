@@ -124,66 +124,32 @@ class Transformer(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, embed_x: tensor) -> tuple[tensor, tensor]:
+    def forward(self, embed_x: tensor):
         # idx and targets are both (B, T) tensor of integers
 
-        x = self.embedding(x) # (B, T, C)
+        x = self.embedding(embed_x) # (B, T, C)
         x = self.blocks(x) # (B, T, C)
         x = self.ln_f(x) # (B, T, C)
         pred = torch.squeeze(self.lm_head(x)) # (B, T)
         pred = torch.squeeze(self.ffwd_result(pred)) # (B)
 
         return pred
-    
-
-class SolvesDataset(Dataset):
-    def __init__(self, file) -> None:
-        super().__init__()
-        self.file = file
-
-    def __len__(self):
-        try:
-            return self.len
-        except AttributeError:
-            with open(self.file) as f:
-                self.len = sum(1 for _ in f)
-            return self.len
-
-    def __getitem__(self, idx):
-        row = np.loadtxt(self.file, delimiter=',', dtype=int, max_rows=1, skiprows=idx)
-
-        X = torch.as_tensor(row[:-1], dtype=torch.long)
-        y = torch.as_tensor(row[-1], dtype=torch.float)
-
-        return X, y
 
 
-def _get_feature_length(training_dir):
-    dataset = SolvesDataset(training_dir, train=True)
-    sample, _ = dataset[0]
-    return len(sample)
+def _get_feature_length(file):
+    sample = np.loadtxt(file, delimiter=',', max_rows=1)
+    return sample.shape[0] - 1
 
 
-def _get_train_data_loader(batch_size, training_dir, **kwargs):
-    logger.info("Get train data loader")
-    dataset = SolvesDataset(training_dir, train=True)
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        **kwargs
-    )
+def _split_features(data):
+    X = tensor(data.T[:-1].T, dtype=torch.long)
+    y = tensor(data.T[-1], dtype=torch.float)
+    return X, y
 
 
-def _get_test_data_loader(test_batch_size, testing_dir, **kwargs):
-    logger.info("Get test data loader")
-    dataset = SolvesDataset(testing_dir, train=False)
-    return DataLoader(
-        dataset,
-        batch_size=test_batch_size,
-        shuffle=True,
-        **kwargs
-    )
+def _get_batch(data, batch_size, rng):
+    batch = rng.choice(data, batch_size, replace=False)
+    return _split_features(batch)
 
 
 def train(args):
@@ -196,29 +162,10 @@ def train(args):
     torch.manual_seed(args.seed)
     if use_cuda:
         torch.cuda.manual_seed(args.seed)
-
-    train_loader = _get_train_data_loader(args.batch_size, args.data_dir, **kwargs)
-    test_loader = _get_test_data_loader(args.test_batch_size, args.test_data_dir, **kwargs)
-
-    logger.debug(
-        "Processes {}/{} ({:.0f}%) of train data".format(
-            len(train_loader.sampler),
-            len(train_loader.dataset),
-            100.0 * len(train_loader.sampler) / len(train_loader.dataset),
-        )
-    )
-
-    logger.debug(
-        "Processes {}/{} ({:.0f}%) of test data".format(
-            len(test_loader.sampler),
-            len(test_loader.dataset),
-            100.0 * len(test_loader.sampler) / len(test_loader.dataset),
-        )
-    )
-
     
+    data_file = f"{args.data_dir}/solves.csv"
     model_args = dict(
-        context_size = _get_feature_length(args.data_dir),
+        context_size = _get_feature_length(data_file),
         n_embed = args.n_embed,
         n_heads = args.n_heads,
         n_layers = args.n_layers,
@@ -226,43 +173,74 @@ def train(args):
     )
     model = Transformer(**model_args).to(device)
     model = nn.DataParallel(model)
+    logger.info(model.parameters())
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
+    with open(data_file) as f:
+        len_data = sum(1 for _ in f)
+    epoch_size = len_data // args.epochs
+    logger.info(f"Performing {args.epochs} epochs of size {epoch_size}")
+    rng = np.random.default_rng()
     for epoch in range(1, args.epochs + 1):
+        logger.info(f"Starting epoch {epoch}")
+        
+        # Read data
+        data = np.loadtxt(data_file, delimiter=',', max_rows=epoch_size, skiprows=(epoch - 1) * epoch_size)
+        rng.shuffle(data)
+
+        # Train test split
+        n = int(0.9 * len(data))
+        train_data = data[:n]
+        test_data = data[n:]
+
         model.train()
-        for batch_idx, (data, target) in enumerate(train_loader, 1):
-            data, target = data.to(device), target.to(device)
+        agg_mse = 0
+        agg_l1 = 0
+        agg_lens = 0
+        for step in range(1, args.steps + 1):
+            X_train, y_train = _get_batch(train_data, args.batch_size, rng)
             optimizer.zero_grad()
-            output = model(data)
-            loss = F.mse_loss(output, target)
+            output = model(X_train)
+            loss = F.mse_loss(output, y_train)
+            agg_mse += F.mse_loss(output, y_train, reduction='sum').item()
+            agg_l1 += F.l1_loss(output, y_train, reduction="sum").item()
+            agg_lens += len(output)
             loss.backward()
             optimizer.step()
-            if batch_idx % args.log_interval == 0:
+            if step % args.log_interval == 0:
                 logger.info(
-                    "Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}".format(
+                    "Train Epoch: {} [{}/{} ({:.0f}%)] MSE: {:.6f}, L1: {:.6f}".format(
                         epoch,
-                        batch_idx * len(data),
-                        len(train_loader.sampler),
-                        100.0 * batch_idx / len(train_loader),
-                        loss.item(),
+                        step,
+                        args.steps,
+                        100.0 * step / args.steps,
+                        agg_mse / agg_lens,
+                        agg_l1 / agg_lens,
                     )
                 )
-        test(model, test_loader, device)
+                agg_mse = 0
+                agg_l1 = 0
+                agg_lens = 0
+        test(model, test_data, args.batch_size, device)
     save_model(model, args.model_dir)
 
 
-def test(model, test_loader, device):
+def test(model, data, batch_size, device):
     model.eval()
-    test_loss = 0
+    mse_loss = 0
+    l1_loss = 0
+    steps = len(data) // batch_size
     with torch.no_grad():
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            pred = model(data)
-            test_loss += F.mse_loss(pred, target, size_average=False).item()  # sum up batch loss
+        for step in range(steps):
+            X, y = _split_features(data[step * batch_size: min((step + 1) * batch_size, len(data))])
+            pred = model(X)
+            mse_loss += F.mse_loss(pred, y, reduction="sum").item()  # sum up batch loss
+            l1_loss += F.l1_loss(pred, y, reduction="sum").item()  # sum up batch loss
 
-    test_loss /= len(test_loader.dataset)
-    logger.info("Test set: Average loss: {:.4f}\n".format(test_loss))
+    mse_loss /= len(data)
+    l1_loss /= len(data)
+    logger.info("Test set: MSE: {:.4f}, L1:{:.4f}\n".format(mse_loss, l1_loss))
 
 
 def model_fn(model_dir, model_args):
@@ -288,23 +266,23 @@ if __name__ == "__main__":
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=64,
+        default=100,
         metavar="N",
         help="input batch size for training (default: 64)",
     )
     parser.add_argument(
-        "--test-batch-size",
+        "--epochs",
+        type=int,
+        default=50,
+        metavar="N",
+        help="number of epochs to train (default: 10)",
+    )
+    parser.add_argument(
+        "--steps",
         type=int,
         default=1000,
         metavar="N",
-        help="input batch size for testing (default: 1000)",
-    )
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=10,
-        metavar="N",
-        help="number of epochs to train (default: 10)",
+        help="number of steps to train per epoch (default: 10)",
     )
     parser.add_argument(
         "--lr", type=float, default=1e-4, metavar="LR", help="learning rate (default: 1e-4)"
@@ -322,21 +300,21 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n_embed",
         type=int,
-        default=8,
+        default=36,
         metavar="N",
         help="how many embeddings per feature",
     )
     parser.add_argument(
         "--n-heads",
         type=int,
-        default=100,
+        default=6,
         metavar="N",
         help="how many parallel heads of self attention",
     )
     parser.add_argument(
         "--n-layers",
         type=int,
-        default=100,
+        default=6,
         metavar="N",
         help="how many blocks of multi-headed attention in sequence",
     )
@@ -354,7 +332,6 @@ if __name__ == "__main__":
     parser.add_argument("--current-host", type=str, default=os.environ["SM_CURRENT_HOST"])
     parser.add_argument("--model-dir", type=str, default=os.environ["SM_MODEL_DIR"])
     parser.add_argument("--data-dir", type=str, default=os.environ["SM_CHANNEL_TRAINING"])
-    parser.add_argument("--test-data-dir", type=str, default=os.environ["SM_CHANNEL_TESTING"])
     parser.add_argument("--num-gpus", type=int, default=os.environ["SM_NUM_GPUS"])
 
     train(parser.parse_args())
