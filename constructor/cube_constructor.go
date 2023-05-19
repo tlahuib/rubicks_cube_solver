@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"math/rand"
 	"os"
 	"strconv"
@@ -19,11 +18,19 @@ type Cube struct {
 type Piece struct {
 	Colors   []rune
 	Rotation []int // Same shape as colors. Each color references a face (0, 5)
+	Id       int
 }
 type Move struct {
 	Axis      int
 	Line      int
 	Direction bool
+}
+type Embed struct {
+	Embed [204]int
+}
+type EmbedMoves struct {
+	Embed  Embed
+	NMoves int
 }
 
 var solvedCube = [][][][]rune{
@@ -131,12 +138,14 @@ func initializeCube() Cube {
 	// The faces are ordered front, back, left, right, top, bottom
 	var cube Cube
 
+	count := 0
 	for layer := 0; layer < 3; layer++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
 				colors := solvedCube[layer][row][col]
 				rotation := getInitialRotations(colors)
-				cube.Pieces[layer][row][col] = Piece{Colors: colors, Rotation: rotation}
+				cube.Pieces[layer][row][col] = Piece{Colors: colors, Rotation: rotation, Id: count}
+				count++
 			}
 		}
 	}
@@ -391,10 +400,20 @@ func PrintCube(cube Cube) {
 	}
 }
 
-func EmbedCube(cube Cube) []int {
-	var locations []int
-	var rotations []int
-	var distances []int
+func flattenArray(arr [][]int) []int {
+	var flatArr []int
+
+	for _, row := range arr {
+		flatArr = append(flatArr, row...)
+	}
+	return flatArr
+}
+
+func EmbedCube(cube Cube) Embed {
+	var locations [27][]int
+	var rotations [27][]int
+	var distances [27][]int
+	var embed Embed
 
 	faceColors := GetFaceColors(cube)
 
@@ -409,137 +428,74 @@ func EmbedCube(cube Cube) []int {
 
 					// Calculate distances
 					if !((row == 1) && (col == 1)) {
-						distSum := 0
 						for i, loc := range correctLocation {
-							distSum += int(math.Abs(float64(currentLocation[i] - loc)))
+							distances[piece.Id] = append(distances[piece.Id], currentLocation[i]-loc)
 						}
-						distances = append(distances, distSum)
 					}
 
 					// Update
-					locations = append(locations, correctLocation[:]...)
-					rotations = append(rotations, piece.Rotation...)
+					locations[piece.Id] = correctLocation[:]
+					rotations[piece.Id] = piece.Rotation
 				}
 			}
 		}
 	}
 
-	embed := append(locations[:], rotations...)
-	embed = append(embed, distances[:]...)
+	slice := append(flattenArray(locations[:]), flattenArray(rotations[:])...)
+	slice = append(slice, flattenArray(distances[:])...)
+
+	copy(embed.Embed[:], slice)
 
 	return embed
 }
 
-func scrambleEmbed(max_moves int, c chan []int) {
-	var nMoves int
-	if max_moves < 2 {
-		nMoves = 1
-	} else {
-		nMoves = rand.Intn(max_moves-1) + 1
+func scrambleEmbed(max_moves int, randomize_nMoves bool, c chan EmbedMoves) {
+	nMoves := max_moves
+	if randomize_nMoves {
+		if max_moves < 2 {
+			nMoves = 1
+		} else {
+			nMoves = rand.Intn(max_moves-1) + 1
+		}
 	}
 
 	cube := InitializeScrambledCube(nMoves)
-	embed := EmbedCube(cube)
+	embedMoves := EmbedMoves{Embed: EmbedCube(cube), NMoves: nMoves}
 
-	c <- append(embed, max_moves)
+	c <- embedMoves
 }
 
-func generateEmbeds(steps int, max_moves int, c chan []int) {
+func generateEmbeds(steps int, max_moves int, randomize_nMoves bool, c chan EmbedMoves) {
 
 	for i := 0; i < steps; i++ {
-		go scrambleEmbed(max_moves, c)
+		go scrambleEmbed(max_moves, randomize_nMoves, c)
 	}
 }
 
-func readSolves(file string) map[[156]int]int {
-	var move int
-	var embed [156]int
-	n_embed := 156
-	bestSolves := make(map[[156]int]int)
-
-	// Check for saved solves
-	fRead, errRead := os.Open(file)
-	if errRead != nil {
-		return bestSolves
-	}
-
-	csvReader := csv.NewReader(fRead)
-	for {
-		rec, err := csvReader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		for i, s := range rec {
-			if i < n_embed {
-				embed[i], _ = strconv.Atoi(s)
-			} else {
-				move, _ = strconv.Atoi(s)
-			}
-		}
-		bestSolves[embed] = move
-	}
-	fRead.Close()
-
-	return bestSolves
-}
-
-func writeSolves(bestSolves map[[156]int]int, file string) {
-	var solves [157]string
-	n_embed := 156
-
-	fWrite, errWrite := os.Create("solves.csv")
-	if errWrite != nil {
-		log.Fatal(errWrite)
-	}
-	csvwriter := csv.NewWriter(fWrite)
-	defer csvwriter.Flush()
-
-	for embed, nMoves := range bestSolves {
-		for i, val := range embed {
-			solves[i] = strconv.Itoa(val)
-		}
-		solves[n_embed] = strconv.Itoa(nMoves)
-
-		csvwriter.Write(solves[:])
-	}
-}
-
-func main() {
-	var joined []int
+func collectRawEmbeds(fileName string, steps int, step_size int, lower int, upper int) {
+	var embed EmbedMoves
 	var newMoves int
-	var embed [156]int
 
-	n_embed := 156
-	solvesFile := "solves.csv"
-	bestSolves := readSolves(solvesFile)
+	c := make(chan EmbedMoves, 100)
 
-	// Create new solves
-	c := make(chan []int, 100)
-	total_iter := 5e5
-	step_size := 10000
-	steps := int(total_iter / float64(step_size))
-
-	for max_moves := 8; max_moves < 25; max_moves++ {
+	for max_moves := lower; max_moves < upper; max_moves++ {
+		// Generate new solves
+		bestSolves := make(map[Embed]int)
 		for step := 0; step < steps; step++ {
 			fmt.Printf("\n---- Starting step %v of %v ----\n", step, steps)
+
 			prev_solves := len(bestSolves)
-
-			go generateEmbeds(step_size, max_moves, c)
+			go generateEmbeds(step_size, max_moves, false, c)
 			for i := 0; i < step_size; i++ {
-				joined = <-c
-				newMoves = joined[n_embed]
-				copy(embed[:], joined[:n_embed])
+				embed = <-c
+				newMoves = embed.NMoves
 
-				if oldMoves, ok := bestSolves[embed]; ok {
+				if oldMoves, ok := bestSolves[embed.Embed]; ok {
 					if newMoves < oldMoves {
-						bestSolves[embed] = newMoves
+						bestSolves[embed.Embed] = newMoves
 					}
 				} else {
-					bestSolves[embed] = newMoves
+					bestSolves[embed.Embed] = newMoves
 				}
 
 				if i%1000 == 0 {
@@ -553,8 +509,157 @@ func main() {
 			}
 
 		}
+
+		// Write
+		fmt.Println("\nWriting new solves...\n")
+		writeSolves(bestSolves, fileName)
+	}
+}
+
+func readSolves(file string, maxMoves int) map[Embed]int {
+	var embed Embed
+	var nMoves int
+	bestSolves := make(map[Embed]int)
+	n_embed := len(embed.Embed)
+
+	// Check for saved solves
+	csvReader, fRead := createReader(file)
+	for {
+		rec, err := csvReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for i, s := range rec {
+			if i < n_embed {
+				embed.Embed[i], _ = strconv.Atoi(s)
+			} else {
+				nMoves, _ = strconv.Atoi(s)
+			}
+		}
+		if nMoves <= maxMoves {
+			bestSolves[embed] = nMoves
+		}
+	}
+	fRead.Close()
+
+	return bestSolves
+}
+
+func writeSolves(bestSolves map[Embed]int, fileName string) {
+	var solves []string
+
+	file := make(map[string]string)
+	file["features"] = fileName + "features.csv"
+	file["labels"] = fileName + "labels.csv"
+
+	feat, errWrite := os.OpenFile(file["features"], os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if errWrite != nil {
+		log.Fatal(errWrite)
+	}
+	lab, errWrite := os.OpenFile(file["labels"], os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if errWrite != nil {
+		log.Fatal(errWrite)
 	}
 
-	// Write
-	writeSolves(bestSolves, solvesFile)
+	featWriter := csv.NewWriter(feat)
+	labWriter := csv.NewWriter(lab)
+	defer featWriter.Flush()
+	defer labWriter.Flush()
+
+	step := 0
+	for embed, nMoves := range bestSolves {
+		for _, val := range embed.Embed {
+			solves = append(solves, strconv.Itoa(val))
+		}
+
+		featWriter.Write(solves)
+		labWriter.Write([]string{strconv.Itoa(nMoves)})
+		solves = nil
+
+		if step%100000 == 0 {
+			percent := float32(step) / float32(len(bestSolves)) * 100
+			fmt.Printf("Wrote %v out of %v lines (%.2f%%)", step, len(bestSolves), percent)
+		}
+		step++
+	}
+}
+
+func createReader(file string) (*csv.Reader, *os.File) {
+	fRead, errRead := os.Open(file)
+	if errRead != nil {
+		log.Fatal(errRead)
+	}
+
+	return csv.NewReader(fRead), fRead
+}
+
+func main() {
+	var embed Embed
+	bestSolves := make(map[Embed]int)
+
+	sourceFile := "solves/raw/solves_raw_"
+	destinationFile := "solves/solves_"
+
+	// Create new solves (Generate maximum data for few moves)
+	total_iter := 1e6
+	step_size := 10000
+	steps := int(total_iter / float64(step_size))
+
+	collectRawEmbeds(sourceFile, steps, step_size, 1, 3)
+
+	// Prune solves
+	os.Remove(destinationFile + "features.csv")
+	os.Remove(destinationFile + "labels.csv")
+
+	rawFeatReader, fFile := createReader(sourceFile + "features.csv")
+	rawLabReader, lFile := createReader(sourceFile + "labels.csv")
+
+	step := 0
+	for {
+		// Read feature row
+		feature, err := rawFeatReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Read label row
+		label, err := rawLabReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for i, s := range feature {
+			embed.Embed[i], _ = strconv.Atoi(s)
+		}
+		newMoves, _ := strconv.Atoi(label[0])
+
+		if oldMoves, ok := bestSolves[embed]; ok {
+			if newMoves < oldMoves {
+				bestSolves[embed] = newMoves
+			}
+		} else {
+			bestSolves[embed] = newMoves
+		}
+
+		if step%100000 == 0 {
+			fmt.Printf("Processed %v rows\n", step)
+		}
+		step++
+	}
+
+	fFile.Close()
+	lFile.Close()
+
+	fmt.Println("Starting writting...")
+	writeSolves(bestSolves, destinationFile)
 }
