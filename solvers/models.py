@@ -141,15 +141,9 @@ def _get_feature_length(file):
     return sample.shape[0] - 1
 
 
-def _split_features(data):
-    X = tensor(data.T[:-1].T, dtype=torch.long)
-    y = tensor(data.T[-1], dtype=torch.float)
-    return X, y
-
-
-def _get_batch(data, batch_size, rng):
-    batch = rng.choice(data, batch_size, replace=False)
-    return _split_features(batch)
+def _get_batch(X, y, batch_size, rng):
+    batch = rng.choice(len(y), batch_size, replace=False)
+    return X[batch], y[batch]
 
 
 def train(args):
@@ -163,9 +157,10 @@ def train(args):
     if use_cuda:
         torch.cuda.manual_seed(args.seed)
     
-    data_file = f"{args.data_dir}/solves.csv"
+    features_file = f"{args.data_dir}/solves_features.csv"
+    labels_file = f"{args.data_dir}/solves_labels.csv"
     model_args = dict(
-        context_size = _get_feature_length(data_file),
+        context_size = _get_feature_length(features_file),
         n_embed = args.n_embed,
         n_heads = args.n_heads,
         n_layers = args.n_layers,
@@ -177,7 +172,7 @@ def train(args):
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
-    with open(data_file) as f:
+    with open(labels_file) as f:
         len_data = sum(1 for _ in f)
     epoch_size = len_data // args.epochs
     logger.info(f"Performing {args.epochs} epochs of size {epoch_size}")
@@ -186,20 +181,22 @@ def train(args):
         logger.info(f"Starting epoch {epoch}")
         
         # Read data
-        data = np.loadtxt(data_file, delimiter=',', max_rows=epoch_size, skiprows=(epoch - 1) * epoch_size)
-        rng.shuffle(data)
+        X = np.loadtxt(features_file, delimiter=',', max_rows=epoch_size, skiprows=(epoch - 1) * epoch_size)
+        y = np.loadtxt(labels_file, delimiter=',', max_rows=epoch_size, skiprows=(epoch - 1) * epoch_size)
+
+        shuffle = rng.choice(len(y), len(y), replace=False)
+        X = X[shuffle]
+        y = y[shuffle]
 
         # Train test split
-        n = int(0.9 * len(data))
-        train_data = data[:n]
-        test_data = data[n:]
+        n = int(0.9 * len(y))
 
         model.train()
         agg_mse = 0
         agg_l1 = 0
         agg_lens = 0
         for step in range(1, args.steps + 1):
-            X_train, y_train = _get_batch(train_data, args.batch_size, rng)
+            X_train, y_train = _get_batch(X[:n], y[:n], args.batch_size, rng)
             optimizer.zero_grad()
             output = model(X_train)
             loss = F.mse_loss(output, y_train)
@@ -222,24 +219,25 @@ def train(args):
                 agg_mse = 0
                 agg_l1 = 0
                 agg_lens = 0
-        test(model, test_data, args.batch_size, device)
+        test(model, X[n:], y[n:], args.batch_size, device)
     save_model(model, args.model_dir)
 
 
-def test(model, data, batch_size, device):
+def test(model, X, y, batch_size, device):
     model.eval()
     mse_loss = 0
     l1_loss = 0
-    steps = len(data) // batch_size
+    steps = len(y) // batch_size
     with torch.no_grad():
         for step in range(steps):
-            X, y = _split_features(data[step * batch_size: min((step + 1) * batch_size, len(data))])
-            pred = model(X)
-            mse_loss += F.mse_loss(pred, y, reduction="sum").item()  # sum up batch loss
-            l1_loss += F.l1_loss(pred, y, reduction="sum").item()  # sum up batch loss
+            X_test = X[step * batch_size: min((step + 1) * batch_size, len(y))]
+            y_test = y[step * batch_size: min((step + 1) * batch_size, len(y))]
+            pred = model(X_test)
+            mse_loss += F.mse_loss(pred, y_test, reduction="sum").item()  # sum up batch loss
+            l1_loss += F.l1_loss(pred, y_test, reduction="sum").item()  # sum up batch loss
 
-    mse_loss /= len(data)
-    l1_loss /= len(data)
+    mse_loss /= len(y)
+    l1_loss /= len(y)
     logger.info("Test set: MSE: {:.4f}, L1:{:.4f}\n".format(mse_loss, l1_loss))
 
 
@@ -256,6 +254,7 @@ def save_model(model, model_dir):
     path = os.path.join(model_dir, "model.pth")
     # recommended way from http://pytorch.org/docs/master/notes/serialization.html
     torch.save(model.cpu().state_dict(), path)
+    logger.info(f"Model saved in {path}")
 
 
 
