@@ -1,24 +1,27 @@
 package main
 
 import (
+	"bufio"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
-	"io"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"strconv"
+	"strings"
+
+	"gonum.org/v1/gonum/mat"
 )
 
 type Cube struct {
-	// Cube     [6][3][3]rune
 	Pieces   [3][3][3]Piece
 	IsSolved bool
 }
 type Piece struct {
-	Colors   []rune
-	Rotation []int // Same shape as colors. Each color references a face (0, 5)
 	Id       int
+	ColorMap map[rune]int // Each color has a face assigned to it
 }
 type Move struct {
 	Axis      int
@@ -26,14 +29,18 @@ type Move struct {
 	Direction bool
 }
 type Embed struct {
-	Embed [204]int
+	Locations [20][3]int
+	Rotations [20][6]int
+}
+type EmbedAbs struct {
+	Embed [36]int
 }
 type EmbedMoves struct {
-	Embed  Embed
+	Embed  EmbedAbs
 	NMoves int
 }
 
-var solvedCube = [][][][]rune{
+var initialCube = [][][][]rune{
 	{
 		{{'w', 'b', 'r'}, {'w', 'r'}, {'w', 'g', 'r'}},
 		{{'w', 'b'}, {'w'}, {'w', 'g'}},
@@ -122,15 +129,53 @@ var centerPieces = [6][3]int{
 	{0, 1, 1}, {2, 1, 1}, {1, 1, 0},
 	{1, 1, 2}, {1, 0, 1}, {1, 2, 1},
 }
+var flatLocations = map[[3]int]int{
+	{0, 0, 0}: 0,
+	{0, 0, 1}: 1,
+	{0, 0, 2}: 2,
+	{0, 1, 0}: 3,
+	{0, 1, 2}: 4,
+	{0, 2, 0}: 5,
+	{0, 2, 1}: 6,
+	{0, 2, 2}: 7,
+	{1, 0, 0}: 8,
+	{1, 0, 2}: 9,
+	{1, 2, 0}: 10,
+	{1, 2, 2}: 11,
+	{2, 0, 0}: 12,
+	{2, 0, 1}: 13,
+	{2, 0, 2}: 14,
+	{2, 1, 0}: 15,
+	{2, 1, 2}: 16,
+	{2, 2, 0}: 17,
+	{2, 2, 1}: 18,
+	{2, 2, 2}: 19,
+}
+var faceDistances = map[[2]int]int{
+	{0, 0}: 0, {1, 0}: 2, {2, 0}: 1, {3, 0}: -1, {4, 0}: -1, {5, 0}: 1,
+	{0, 1}: -2, {1, 1}: 0, {2, 1}: -1, {3, 1}: 1, {4, 1}: 1, {5, 1}: -1,
+	{0, 2}: -1, {1, 2}: 1, {2, 2}: 0, {3, 2}: 2, {4, 2}: -1, {5, 2}: 1,
+	{0, 3}: 1, {1, 3}: -1, {2, 3}: -2, {3, 3}: 0, {4, 3}: 1, {5, 3}: -1,
+	{0, 4}: 1, {1, 4}: -1, {2, 4}: 1, {3, 4}: -1, {4, 4}: 0, {5, 4}: 2,
+	{0, 5}: -1, {1, 5}: 1, {2, 5}: -1, {3, 5}: 1, {4, 5}: -2, {5, 5}: 0,
+}
+var faceAxis = map[int]int{
+	0: 2,
+	1: 2,
+	2: 1,
+	3: 1,
+	4: 0,
+	5: 0,
+}
 
-func getInitialRotations(colors []rune) []int {
-	var rotations []int
+func getInitialRotations(colors []rune) map[rune]int {
+	colorMap := make(map[rune]int)
 
 	for _, color := range colors {
-		rotations = append(rotations, initialFaceColors[color])
+		colorMap[color] = initialFaceColors[color]
 	}
 
-	return rotations
+	return colorMap
 }
 
 func initializeCube() Cube {
@@ -142,9 +187,9 @@ func initializeCube() Cube {
 	for layer := 0; layer < 3; layer++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
-				colors := solvedCube[layer][row][col]
-				rotation := getInitialRotations(colors)
-				cube.Pieces[layer][row][col] = Piece{Colors: colors, Rotation: rotation, Id: count}
+				colors := initialCube[layer][row][col]
+				colorMap := getInitialRotations(colors)
+				cube.Pieces[layer][row][col] = Piece{ColorMap: colorMap, Id: count}
 				count++
 			}
 		}
@@ -168,8 +213,8 @@ func moveZ(cube Cube, section int, direction bool) Cube {
 			}
 
 			// Rotate new piece accordingly
-			for i, r := range newPiece.Rotation {
-				newPiece.Rotation[i] = zFaces[direction][r]
+			for color, r := range newPiece.ColorMap {
+				newPiece.ColorMap[color] = zFaces[direction][r]
 			}
 
 			// Substitute the piece
@@ -194,8 +239,8 @@ func moveY(cube Cube, col int, direction bool) Cube {
 			}
 
 			// Rotate new piece accordingly
-			for i, r := range newPiece.Rotation {
-				newPiece.Rotation[i] = yFaces[direction][r]
+			for color, r := range newPiece.ColorMap {
+				newPiece.ColorMap[color] = yFaces[direction][r]
 			}
 
 			// Substitute the piece
@@ -221,8 +266,8 @@ func moveX(cube Cube, row int, direction bool) Cube {
 			}
 
 			// Rotate new piece accordingly
-			for i, r := range newPiece.Rotation {
-				newPiece.Rotation[i] = xFaces[direction][r]
+			for color, r := range newPiece.ColorMap {
+				newPiece.ColorMap[color] = xFaces[direction][r]
 			}
 
 			// Substitute the piece
@@ -249,12 +294,25 @@ func MoveCube(cube Cube, move Move) Cube {
 	return _cube
 }
 
+func RotateCube(cube Cube, axis int, direction bool) Cube {
+	_cube := cube
+
+	for line := 0; line < 3; line++ {
+		move := Move{Axis: axis, Line: line, Direction: direction}
+		_cube = MoveCube(_cube, move)
+	}
+
+	return _cube
+}
+
 func GetFaceColors(cube Cube) map[rune]int {
 	faceColors := make(map[rune]int)
 
 	for _, loc := range centerPieces {
 		piece := cube.Pieces[loc[0]][loc[1]][loc[2]]
-		faceColors[piece.Colors[0]] = piece.Rotation[0]
+		for color, r := range piece.ColorMap {
+			faceColors[color] = r
+		}
 	}
 
 	return faceColors
@@ -264,7 +322,7 @@ func GetCorrectLocation(piece Piece, faceColors map[rune]int) [3]int {
 	var face int
 	location := [3]int{1, 1, 1}
 
-	for _, color := range piece.Colors {
+	for color := range piece.ColorMap {
 		face = faceColors[color]
 
 		switch face {
@@ -287,8 +345,8 @@ func GetCorrectLocation(piece Piece, faceColors map[rune]int) [3]int {
 }
 
 func CheckCorrectLocation(piece Piece, faceColors map[rune]int) bool {
-	for i, color := range piece.Colors {
-		if faceColors[color] != piece.Rotation[i] {
+	for color, r := range piece.ColorMap {
+		if faceColors[color] != r {
 			return false
 		}
 	}
@@ -361,10 +419,9 @@ func CubeToFaces(cube Cube) [6][3][3]rune {
 			for col := 0; col < 3; col++ {
 				piece := cube.Pieces[layer][row][col]
 				faceMap := pieceToFace[[3]int{layer, row, col}]
-				for i, faceColor := range piece.Colors {
-					face := piece.Rotation[i]
-					coord := faceMap[face]
-					faces[face][coord[0]][coord[1]] = faceColor
+				for color, r := range piece.ColorMap {
+					coord := faceMap[r]
+					faces[r][coord[0]][coord[1]] = color
 				}
 			}
 		}
@@ -400,51 +457,146 @@ func PrintCube(cube Cube) {
 	}
 }
 
-func flattenArray(arr [][]int) []int {
-	var flatArr []int
-
-	for _, row := range arr {
-		flatArr = append(flatArr, row...)
-	}
-	return flatArr
-}
-
 func EmbedCube(cube Cube) Embed {
-	var locations [27][]int
-	var rotations [27][]int
-	var distances [27][]int
+
 	var embed Embed
+	embed.Rotations = [20][6]int{}
 
 	faceColors := GetFaceColors(cube)
 
-	for section := 0; section < 3; section++ {
-		for row := 0; row < 3; row++ {
-			for col := 0; col < 3; col++ {
-				if !((section == 1) && (row == 1) && (col == 1)) {
-					// Piece & Locations
-					piece := cube.Pieces[section][row][col]
-					currentLocation := [3]int{section, row, col}
-					correctLocation := GetCorrectLocation(piece, faceColors)
+	for key, val := range flatLocations {
+		// Piece & Locations
+		piece := cube.Pieces[key[0]][key[1]][key[2]]
+		correctLocation := GetCorrectLocation(piece, faceColors)
 
-					// Calculate distances
-					if !((row == 1) && (col == 1)) {
-						for i, loc := range correctLocation {
-							distances[piece.Id] = append(distances[piece.Id], currentLocation[i]-loc)
-						}
-					}
+		// Calculate location distances
+		for i, loc := range correctLocation {
+			embed.Locations[val][i] = loc - key[i]
+		}
 
-					// Update
-					locations[piece.Id] = correctLocation[:]
-					rotations[piece.Id] = piece.Rotation
-				}
-			}
+		// Calculate rotation distances
+		for color, r := range piece.ColorMap {
+			embed.Rotations[val][initialFaceColors[color]] = faceDistances[[2]int{faceColors[color], r}]
+		}
+	}
+	return embed
+}
+
+func GetFaceAbsDist(cube Cube) [7]int {
+	var faceAbsDist [7]int
+	var locationDist int
+
+	faceColors := GetFaceColors(cube)
+
+	for key, _ := range flatLocations {
+		// Piece & Locations
+		piece := cube.Pieces[key[0]][key[1]][key[2]]
+		correctLocation := GetCorrectLocation(piece, faceColors)
+
+		// Calculate location distances
+		for i, loc := range correctLocation {
+			locationDist += int(math.Abs(float64(loc - key[i])))
+		}
+
+		// Calculate rotation distances
+		for color, r := range piece.ColorMap {
+			faceAbsDist[faceColors[color]] += int(math.Abs(float64(faceDistances[[2]int{faceColors[color], r}]))) + locationDist
 		}
 	}
 
-	slice := append(flattenArray(locations[:]), flattenArray(rotations[:])...)
-	slice = append(slice, flattenArray(distances[:])...)
+	faceAbsDist[6] = math.MaxInt
 
-	copy(embed.Embed[:], slice)
+	return faceAbsDist
+}
+
+func GetSmallestFaceDist(cube Cube) [3]int {
+	faceAbsDist := GetFaceAbsDist(cube)
+
+	smallest := [3]int{6, 6, 6}
+	for i, val := range faceAbsDist {
+		if val <= faceAbsDist[smallest[0]] {
+			smallest[2] = smallest[1]
+			smallest[1] = smallest[0]
+			smallest[0] = i
+		} else if val <= faceAbsDist[smallest[1]] {
+			smallest[2] = smallest[1]
+			smallest[1] = i
+		} else if val <= faceAbsDist[smallest[2]] {
+
+		}
+	}
+
+	return smallest
+}
+
+// func StandardRotate(cube Cube) Cube {
+// 	var Axis [3]int
+// 	_cube := cube
+
+// 	// Determine the two contiguous smallest faces
+// 	smallest := GetSmallestFaceDist(_cube)
+// 	frontFace := smallest[0]
+
+// 	topFace := smallest[1]
+// 	if math.Floor(float64(frontFace)/2) == math.Floor(float64(topFace)/2) {
+// 		topFace = smallest[2]
+// 	}
+
+// 	// Get the face axis for each of the smallest faces
+// 	Axis[0] = faceAxis[frontFace]
+// 	Axis[1] = faceAxis[topFace]
+// 	for i := 0; i < 3; i++ {
+// 		if (i != Axis[0]) && (i != Axis[1]) {
+// 			Axis[2] = i
+// 			break
+// 		}
+// 	}
+
+// 	// Move to the standard position
+// 	if Axis[2] == 2 {
+
+// 	} else {
+
+// 	}
+
+// }
+
+func AbsoluteEmbed(cube Cube) EmbedAbs {
+	var prev mat.Dense
+	var embedMat mat.Dense
+	var embed EmbedAbs
+	var locations [20 * 3]float64
+	rotations := [20 * 6]float64{}
+
+	faceColors := GetFaceColors(cube)
+
+	for key, val := range flatLocations {
+		// Piece & Locations
+		piece := cube.Pieces[key[0]][key[1]][key[2]]
+		correctLocation := GetCorrectLocation(piece, faceColors)
+
+		// Calculate location distances
+		for i, loc := range correctLocation {
+			locations[val*3+i] = math.Abs(float64(loc - key[i]))
+		}
+
+		// Calculate rotation distances
+		for color, r := range piece.ColorMap {
+			rotations[val*6+initialFaceColors[color]] = math.Abs(float64(faceDistances[[2]int{faceColors[color], r}]))
+		}
+	}
+
+	locMat := mat.NewDense(20, 3, locations[:])
+	rotMat := mat.NewDense(20, 6, rotations[:])
+
+	prev.Mul(locMat.T(), rotMat)
+	embedMat.Mul(prev.T(), &prev)
+
+	for i := 0; i < 6; i++ {
+		for j := 0; j < 6; j++ {
+			embed.Embed[i*6+j] = int(embedMat.At(i, j))
+		}
+	}
 
 	return embed
 }
@@ -460,7 +612,7 @@ func scrambleEmbed(max_moves int, randomize_nMoves bool, c chan EmbedMoves) {
 	}
 
 	cube := InitializeScrambledCube(nMoves)
-	embedMoves := EmbedMoves{Embed: EmbedCube(cube), NMoves: nMoves}
+	embedMoves := EmbedMoves{Embed: AbsoluteEmbed(cube), NMoves: nMoves}
 
 	c <- embedMoves
 }
@@ -472,31 +624,24 @@ func generateEmbeds(steps int, max_moves int, randomize_nMoves bool, c chan Embe
 	}
 }
 
-func collectRawEmbeds(fileName string, steps int, step_size int, lower int, upper int) {
+func collectEmbeds(fileName string, steps int, step_size int, lower int, upper int) {
 	var embed EmbedMoves
 	var newMoves int
 
 	c := make(chan EmbedMoves, 100)
 
-	for max_moves := lower; max_moves < upper; max_moves++ {
+	bestSolves := make(map[EmbedAbs]int)
+	for max_moves := upper; max_moves >= lower; max_moves-- {
 		// Generate new solves
-		bestSolves := make(map[Embed]int)
 		for step := 0; step < steps; step++ {
 			fmt.Printf("\n---- Starting step %v of %v ----\n", step, steps)
 
-			prev_solves := len(bestSolves)
+			// prev_solves := len(bestSolves)
 			go generateEmbeds(step_size, max_moves, false, c)
 			for i := 0; i < step_size; i++ {
 				embed = <-c
 				newMoves = embed.NMoves
-
-				if oldMoves, ok := bestSolves[embed.Embed]; ok {
-					if newMoves < oldMoves {
-						bestSolves[embed.Embed] = newMoves
-					}
-				} else {
-					bestSolves[embed.Embed] = newMoves
-				}
+				bestSolves[embed.Embed] = newMoves
 
 				if i%1000 == 0 {
 					percent := float32(i) / float32(step_size) * 100
@@ -504,89 +649,133 @@ func collectRawEmbeds(fileName string, steps int, step_size int, lower int, uppe
 				}
 			}
 
-			if prev_solves == len(bestSolves) {
-				break
-			}
+			// if prev_solves == len(bestSolves) {
+			// 	break
+			// }
 
 		}
 
-		// Write
-		fmt.Println("\nWriting new solves...\n")
-		writeSolves(bestSolves, fileName)
 	}
+
+	// Write
+	fmt.Print("\nWriting new solves...\n\n")
+	writeAbsSolves(bestSolves, fileName)
 }
 
-func readSolves(file string, maxMoves int) map[Embed]int {
-	var embed Embed
-	var nMoves int
-	bestSolves := make(map[Embed]int)
-	n_embed := len(embed.Embed)
+func createWriter(file string) *bufio.Writer {
+	osFile, errWrite := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if errWrite != nil {
+		log.Fatal(errWrite)
+	}
 
-	// Check for saved solves
-	csvReader, fRead := createReader(file)
-	for {
-		rec, err := csvReader.Read()
-		if err == io.EOF {
-			break
-		}
+	Writer := bufio.NewWriter(osFile)
+
+	return Writer
+}
+
+func writeSolves(solves map[EmbedAbs]int, fileName string) {
+	file := make(map[string]string)
+	file["features"] = fileName + "features.json"
+	file["labels"] = fileName + "labels.csv"
+
+	os.Remove(file["features"])
+	os.Remove(file["labels"])
+
+	featWriter := createWriter(file["features"])
+	labWriter := createWriter(file["labels"])
+	defer featWriter.Flush()
+	defer labWriter.Flush()
+
+	featWriter.WriteString("[")
+	first := true
+	for embed, nMoves := range solves {
+
+		// Write the number of moves
+		labWriter.WriteString(strconv.Itoa(nMoves) + "\n")
+
+		// Write the embeddings
+		b, err := json.Marshal(embed)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Println(err)
+			return
 		}
 
-		for i, s := range rec {
-			if i < n_embed {
-				embed.Embed[i], _ = strconv.Atoi(s)
-			} else {
-				nMoves, _ = strconv.Atoi(s)
-			}
+		if first {
+			featWriter.WriteString(string(b))
+			first = false
+		} else {
+			featWriter.WriteString(",\n" + string(b))
 		}
-		if nMoves <= maxMoves {
-			bestSolves[embed] = nMoves
-		}
+
+		delete(solves, embed)
 	}
-	fRead.Close()
-
-	return bestSolves
+	featWriter.WriteString("]")
 }
 
-func writeSolves(bestSolves map[Embed]int, fileName string) {
-	var solves []string
+func arrayToString(a []int, delim string) string {
+	return strings.Trim(strings.Replace(fmt.Sprint(a), " ", delim, -1), "[]")
+	//return strings.Trim(strings.Join(strings.Split(fmt.Sprint(a), " "), delim), "[]")
+	//return strings.Trim(strings.Join(strings.Fields(fmt.Sprint(a)), delim), "[]")
+}
 
+func writeAbsSolves(solves map[EmbedAbs]int, fileName string) {
 	file := make(map[string]string)
 	file["features"] = fileName + "features.csv"
 	file["labels"] = fileName + "labels.csv"
 
-	feat, errWrite := os.OpenFile(file["features"], os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-	if errWrite != nil {
-		log.Fatal(errWrite)
-	}
-	lab, errWrite := os.OpenFile(file["labels"], os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-	if errWrite != nil {
-		log.Fatal(errWrite)
-	}
+	os.Remove(file["features"])
+	os.Remove(file["labels"])
 
-	featWriter := csv.NewWriter(feat)
-	labWriter := csv.NewWriter(lab)
+	featWriter := createWriter(file["features"])
+	labWriter := createWriter(file["labels"])
 	defer featWriter.Flush()
 	defer labWriter.Flush()
 
-	step := 0
-	for embed, nMoves := range bestSolves {
-		for _, val := range embed.Embed {
-			solves = append(solves, strconv.Itoa(val))
-		}
+	for embed, nMoves := range solves {
 
-		featWriter.Write(solves)
-		labWriter.Write([]string{strconv.Itoa(nMoves)})
-		solves = nil
+		// Write the number of moves
+		labWriter.WriteString(strconv.Itoa(nMoves) + "\n")
 
-		if step%100000 == 0 {
-			percent := float32(step) / float32(len(bestSolves)) * 100
-			fmt.Printf("Wrote %v out of %v lines (%.2f%%)", step, len(bestSolves), percent)
-		}
-		step++
+		// Write the embeddings
+
+		featWriter.WriteString(arrayToString(embed.Embed[:], ",") + "\n")
+
+		delete(solves, embed)
 	}
 }
+
+// func readSolves(file string, maxMoves int) map[Embed]int {
+// 	var embed Embed
+// 	var nMoves int
+// 	bestSolves := make(map[Embed]int)
+// 	// n_embed := len(embed.Embed)
+
+// 	// Check for saved solves
+// 	csvReader, fRead := createReader(file)
+// 	for {
+// 		rec, err := csvReader.Read()
+// 		if err == io.EOF {
+// 			break
+// 		}
+// 		if err != nil {
+// 			log.Fatal(err)
+// 		}
+
+// 		for i, s := range rec {
+// 			if i < n_embed {
+// 				embed.Embed[i], _ = strconv.Atoi(s)
+// 			} else {
+// 				nMoves, _ = strconv.Atoi(s)
+// 			}
+// 		}
+// 		if nMoves <= maxMoves {
+// 			bestSolves[embed] = nMoves
+// 		}
+// 	}
+// 	fRead.Close()
+
+// 	return bestSolves
+// }
 
 func createReader(file string) (*csv.Reader, *os.File) {
 	fRead, errRead := os.Open(file)
@@ -598,68 +787,68 @@ func createReader(file string) (*csv.Reader, *os.File) {
 }
 
 func main() {
-	var embed Embed
-	bestSolves := make(map[Embed]int)
+	// var embed Embed
+	// bestSolves := make(map[Embed]int)
 
-	sourceFile := "solves/raw/solves_raw_"
-	destinationFile := "solves/solves_"
+	sourceFile := "solves/solves_"
+	// destinationFile := "solves/solves_"
 
 	// Create new solves (Generate maximum data for few moves)
 	total_iter := 1e6
 	step_size := 10000
-	steps := int(total_iter / float64(step_size))
+	steps := int(float64(total_iter) / float64(step_size))
 
-	collectRawEmbeds(sourceFile, steps, step_size, 1, 3)
+	collectEmbeds(sourceFile, steps, step_size, 1, 25)
 
-	// Prune solves
-	os.Remove(destinationFile + "features.csv")
-	os.Remove(destinationFile + "labels.csv")
+	// // Prune solves
+	// os.Remove(destinationFile + "features.csv")
+	// os.Remove(destinationFile + "labels.csv")
 
-	rawFeatReader, fFile := createReader(sourceFile + "features.csv")
-	rawLabReader, lFile := createReader(sourceFile + "labels.csv")
+	// rawFeatReader, fFile := createReader(sourceFile + "features.csv")
+	// rawLabReader, lFile := createReader(sourceFile + "labels.csv")
 
-	step := 0
-	for {
-		// Read feature row
-		feature, err := rawFeatReader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
+	// step := 0
+	// for {
+	// 	// Read feature row
+	// 	feature, err := rawFeatReader.Read()
+	// 	if err == io.EOF {
+	// 		break
+	// 	}
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
 
-		// Read label row
-		label, err := rawLabReader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
+	// 	// Read label row
+	// 	label, err := rawLabReader.Read()
+	// 	if err == io.EOF {
+	// 		break
+	// 	}
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
 
-		for i, s := range feature {
-			embed.Embed[i], _ = strconv.Atoi(s)
-		}
-		newMoves, _ := strconv.Atoi(label[0])
+	// 	for i, s := range feature {
+	// 		embed.Embed[i], _ = strconv.Atoi(s)
+	// 	}
+	// 	newMoves, _ := strconv.Atoi(label[0])
 
-		if oldMoves, ok := bestSolves[embed]; ok {
-			if newMoves < oldMoves {
-				bestSolves[embed] = newMoves
-			}
-		} else {
-			bestSolves[embed] = newMoves
-		}
+	// 	if oldMoves, ok := bestSolves[embed]; ok {
+	// 		if newMoves < oldMoves {
+	// 			bestSolves[embed] = newMoves
+	// 		}
+	// 	} else {
+	// 		bestSolves[embed] = newMoves
+	// 	}
 
-		if step%100000 == 0 {
-			fmt.Printf("Processed %v rows\n", step)
-		}
-		step++
-	}
+	// 	if step%100000 == 0 {
+	// 		fmt.Printf("Processed %v rows\n", step)
+	// 	}
+	// 	step++
+	// }
 
-	fFile.Close()
-	lFile.Close()
+	// fFile.Close()
+	// lFile.Close()
 
-	fmt.Println("Starting writting...")
-	writeSolves(bestSolves, destinationFile)
+	// fmt.Println("Starting writting...")
+	// writeSolves(bestSolves, destinationFile)
 }

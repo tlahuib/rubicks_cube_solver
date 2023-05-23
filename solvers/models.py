@@ -168,6 +168,11 @@ def train(args):
     model = Transformer(**model_args).to(device)
     # model = nn.DataParallel(model)
 
+    if args.load:
+        path = args.model_dir + "/" + args.model_file
+        logger.info(f"Loading model from {path}")
+        model.load_state_dict(torch.load(path))
+
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     with open(labels_file) as f:
@@ -267,7 +272,7 @@ def save_model(model, model_dir, model_name="model.pth"):
     logger.info("Saving the model.")
     path = os.path.join(model_dir, model_name)
     # recommended way from http://pytorch.org/docs/master/notes/serialization.html
-    torch.save(model.cpu().state_dict(), path)
+    torch.save(model.state_dict(), path)
     logger.info(f"Model saved in {path}")
 
 
@@ -279,7 +284,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=200,
+        default=500,
         metavar="N",
         help="input batch size for training (default: 64)",
     )
@@ -305,7 +310,7 @@ if __name__ == "__main__":
         help="number of steps to train per epoch (default: 10)",
     )
     parser.add_argument(
-        "--lr", type=float, default=1e-6, metavar="LR", help="learning rate (default: 1e-6)"
+        "--lr", type=float, default=1e-4, metavar="LR", help="learning rate (default: 1e-4)"
     )
     parser.add_argument("--seed", type=int, default=1, metavar="S", help="random seed (default: 1)")
     parser.add_argument(
@@ -320,7 +325,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n_embed",
         type=int,
-        default=4,
+        default=12,
         metavar="N",
         help="how many embeddings per feature",
     )
@@ -345,6 +350,20 @@ if __name__ == "__main__":
         metavar="N",
         help="percent of nodes disconected for dropout layers",
     )
+    parser.add_argument(
+        "--load",
+        type=bool,
+        default=False, 
+        metavar="N",
+        help="Whether to load or not a pretrained model (default: False)",
+    )
+    parser.add_argument(
+        "--model-file",
+        type=str,
+        default="checkpoint_0.pth",
+        metavar="N",
+        help="Which checkpoint to load.",
+    )
 
 
     # Container environment
@@ -355,8 +374,8 @@ if __name__ == "__main__":
         parser.add_argument("--data-dir", type=str, default=os.environ["SM_CHANNEL_TRAINING"])
         parser.add_argument("--num-gpus", type=int, default=os.environ["SM_NUM_GPUS"])
     except KeyError:
-        parser.add_argument("--model-dir", type=str, default=os.getcwd() + "/constructor/solves")
-        parser.add_argument("--data-dir", type=str, default=os.getcwd() + "/constructor/solves")
+        parser.add_argument("--model-dir", type=str, default=os.getcwd() + "/constructor/solves/v3")
+        parser.add_argument("--data-dir", type=str, default=os.getcwd() + "/constructor/solves/v3")
         parser.add_argument("--num-gpus", type=int, default=0)
 
     train(parser.parse_args())
