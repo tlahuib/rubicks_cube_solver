@@ -2,8 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -33,7 +31,7 @@ type Embed struct {
 	Rotations [20][6]int
 }
 type EmbedAbs struct {
-	Embed [36]int
+	Embed [210]int
 }
 type EmbedMoves struct {
 	Embed  EmbedAbs
@@ -159,14 +157,6 @@ var faceDistances = map[[2]int]int{
 	{0, 4}: 1, {1, 4}: -1, {2, 4}: 1, {3, 4}: -1, {4, 4}: 0, {5, 4}: 2,
 	{0, 5}: -1, {1, 5}: 1, {2, 5}: -1, {3, 5}: 1, {4, 5}: -2, {5, 5}: 0,
 }
-var faceAxis = map[int]int{
-	0: 2,
-	1: 2,
-	2: 1,
-	3: 1,
-	4: 0,
-	5: 0,
-}
 
 func getInitialRotations(colors []rune) map[rune]int {
 	colorMap := make(map[rune]int)
@@ -183,14 +173,12 @@ func initializeCube() Cube {
 	// The faces are ordered front, back, left, right, top, bottom
 	var cube Cube
 
-	count := 0
 	for layer := 0; layer < 3; layer++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
 				colors := initialCube[layer][row][col]
 				colorMap := getInitialRotations(colors)
-				cube.Pieces[layer][row][col] = Piece{ColorMap: colorMap, Id: count}
-				count++
+				cube.Pieces[layer][row][col] = Piece{ColorMap: colorMap, Id: flatLocations[[3]int{layer, row, col}]}
 			}
 		}
 	}
@@ -482,119 +470,47 @@ func EmbedCube(cube Cube) Embed {
 	return embed
 }
 
-func GetFaceAbsDist(cube Cube) [7]int {
-	var faceAbsDist [7]int
-	var locationDist int
-
-	faceColors := GetFaceColors(cube)
-
-	for key, _ := range flatLocations {
-		// Piece & Locations
-		piece := cube.Pieces[key[0]][key[1]][key[2]]
-		correctLocation := GetCorrectLocation(piece, faceColors)
-
-		// Calculate location distances
-		for i, loc := range correctLocation {
-			locationDist += int(math.Abs(float64(loc - key[i])))
-		}
-
-		// Calculate rotation distances
-		for color, r := range piece.ColorMap {
-			faceAbsDist[faceColors[color]] += int(math.Abs(float64(faceDistances[[2]int{faceColors[color], r}]))) + locationDist
-		}
-	}
-
-	faceAbsDist[6] = math.MaxInt
-
-	return faceAbsDist
-}
-
-func GetSmallestFaceDist(cube Cube) [3]int {
-	faceAbsDist := GetFaceAbsDist(cube)
-
-	smallest := [3]int{6, 6, 6}
-	for i, val := range faceAbsDist {
-		if val <= faceAbsDist[smallest[0]] {
-			smallest[2] = smallest[1]
-			smallest[1] = smallest[0]
-			smallest[0] = i
-		} else if val <= faceAbsDist[smallest[1]] {
-			smallest[2] = smallest[1]
-			smallest[1] = i
-		} else if val <= faceAbsDist[smallest[2]] {
-
-		}
-	}
-
-	return smallest
-}
-
-// func StandardRotate(cube Cube) Cube {
-// 	var Axis [3]int
-// 	_cube := cube
-
-// 	// Determine the two contiguous smallest faces
-// 	smallest := GetSmallestFaceDist(_cube)
-// 	frontFace := smallest[0]
-
-// 	topFace := smallest[1]
-// 	if math.Floor(float64(frontFace)/2) == math.Floor(float64(topFace)/2) {
-// 		topFace = smallest[2]
-// 	}
-
-// 	// Get the face axis for each of the smallest faces
-// 	Axis[0] = faceAxis[frontFace]
-// 	Axis[1] = faceAxis[topFace]
-// 	for i := 0; i < 3; i++ {
-// 		if (i != Axis[0]) && (i != Axis[1]) {
-// 			Axis[2] = i
-// 			break
-// 		}
-// 	}
-
-// 	// Move to the standard position
-// 	if Axis[2] == 2 {
-
-// 	} else {
-
-// 	}
-
-// }
-
 func AbsoluteEmbed(cube Cube) EmbedAbs {
-	var prev mat.Dense
 	var embedMat mat.Dense
+	var LT mat.Dense
+	var RT mat.Dense
 	var embed EmbedAbs
-	var locations [20 * 3]float64
-	rotations := [20 * 6]float64{}
+	var Locations [20 * 3]float64
+	Rotations := [20 * 6]float64{}
 
 	faceColors := GetFaceColors(cube)
 
-	for key, val := range flatLocations {
+	for key := range flatLocations {
 		// Piece & Locations
 		piece := cube.Pieces[key[0]][key[1]][key[2]]
 		correctLocation := GetCorrectLocation(piece, faceColors)
 
 		// Calculate location distances
 		for i, loc := range correctLocation {
-			locations[val*3+i] = math.Abs(float64(loc - key[i]))
+			Locations[piece.Id*3+i] = math.Abs(float64(loc - key[i]))
 		}
 
 		// Calculate rotation distances
-		for color, r := range piece.ColorMap {
-			rotations[val*6+initialFaceColors[color]] = math.Abs(float64(faceDistances[[2]int{faceColors[color], r}]))
+		for i, color := range []rune{'w', 'y', 'b', 'g', 'r', 'o'} {
+			if r, ok := piece.ColorMap[color]; ok {
+				coord := [2]int{faceColors[color], r}
+				Rotations[piece.Id*6+i] = math.Abs(float64(faceDistances[coord]))
+			}
 		}
 	}
 
-	locMat := mat.NewDense(20, 3, locations[:])
-	rotMat := mat.NewDense(20, 6, rotations[:])
+	L := mat.NewDense(20, 3, Locations[:])
+	R := mat.NewDense(20, 6, Rotations[:])
+	LT.Mul(L, L.T())
+	RT.Mul(R, R.T())
+	embedMat.Add(&LT, &RT)
 
-	prev.Mul(locMat.T(), rotMat)
-	embedMat.Mul(prev.T(), &prev)
-
-	for i := 0; i < 6; i++ {
-		for j := 0; j < 6; j++ {
-			embed.Embed[i*6+j] = int(embedMat.At(i, j))
+	// Flatten matrix
+	count := 0
+	for i := 0; i < 20; i++ {
+		for j := 0; j < i+1; j++ {
+			embed.Embed[count] = int(embedMat.At(i, j))
+			count++
 		}
 	}
 
@@ -628,38 +544,28 @@ func collectEmbeds(fileName string, steps int, step_size int, lower int, upper i
 	var embed EmbedMoves
 	var newMoves int
 
-	c := make(chan EmbedMoves, 100)
-
 	bestSolves := make(map[EmbedAbs]int)
 	for max_moves := upper; max_moves >= lower; max_moves-- {
 		// Generate new solves
 		for step := 0; step < steps; step++ {
-			fmt.Printf("\n---- Starting step %v of %v ----\n", step, steps)
 
-			// prev_solves := len(bestSolves)
+			c := make(chan EmbedMoves, 10)
 			go generateEmbeds(step_size, max_moves, false, c)
 			for i := 0; i < step_size; i++ {
 				embed = <-c
 				newMoves = embed.NMoves
 				bestSolves[embed.Embed] = newMoves
-
-				if i%1000 == 0 {
-					percent := float32(i) / float32(step_size) * 100
-					fmt.Printf("Max_Moves: %v \t\t Step: %v \t\t -- %.2f%% --\t\t Samples: %v\n", max_moves, i, percent, len(bestSolves))
-				}
 			}
+			close(c)
 
-			// if prev_solves == len(bestSolves) {
-			// 	break
-			// }
-
+			percent := float32(step) / float32(steps) * 100
+			fmt.Printf("Max_Moves: %v \t\t Step: (%v / %v) \t\t -- %.2f%% --\t\t Samples: %v\n", max_moves, step, steps, percent, len(bestSolves))
 		}
-
 	}
 
 	// Write
 	fmt.Print("\nWriting new solves...\n\n")
-	writeAbsSolves(bestSolves, fileName)
+	writeSolves(bestSolves, fileName)
 }
 
 func createWriter(file string) *bufio.Writer {
@@ -673,52 +579,11 @@ func createWriter(file string) *bufio.Writer {
 	return Writer
 }
 
-func writeSolves(solves map[EmbedAbs]int, fileName string) {
-	file := make(map[string]string)
-	file["features"] = fileName + "features.json"
-	file["labels"] = fileName + "labels.csv"
-
-	os.Remove(file["features"])
-	os.Remove(file["labels"])
-
-	featWriter := createWriter(file["features"])
-	labWriter := createWriter(file["labels"])
-	defer featWriter.Flush()
-	defer labWriter.Flush()
-
-	featWriter.WriteString("[")
-	first := true
-	for embed, nMoves := range solves {
-
-		// Write the number of moves
-		labWriter.WriteString(strconv.Itoa(nMoves) + "\n")
-
-		// Write the embeddings
-		b, err := json.Marshal(embed)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		if first {
-			featWriter.WriteString(string(b))
-			first = false
-		} else {
-			featWriter.WriteString(",\n" + string(b))
-		}
-
-		delete(solves, embed)
-	}
-	featWriter.WriteString("]")
-}
-
 func arrayToString(a []int, delim string) string {
 	return strings.Trim(strings.Replace(fmt.Sprint(a), " ", delim, -1), "[]")
-	//return strings.Trim(strings.Join(strings.Split(fmt.Sprint(a), " "), delim), "[]")
-	//return strings.Trim(strings.Join(strings.Fields(fmt.Sprint(a)), delim), "[]")
 }
 
-func writeAbsSolves(solves map[EmbedAbs]int, fileName string) {
+func writeSolves(solves map[EmbedAbs]int, fileName string) {
 	file := make(map[string]string)
 	file["features"] = fileName + "features.csv"
 	file["labels"] = fileName + "labels.csv"
@@ -731,6 +596,8 @@ func writeAbsSolves(solves map[EmbedAbs]int, fileName string) {
 	defer featWriter.Flush()
 	defer labWriter.Flush()
 
+	i := 0
+	total := len(solves)
 	for embed, nMoves := range solves {
 
 		// Write the number of moves
@@ -741,114 +608,22 @@ func writeAbsSolves(solves map[EmbedAbs]int, fileName string) {
 		featWriter.WriteString(arrayToString(embed.Embed[:], ",") + "\n")
 
 		delete(solves, embed)
+
+		if i%100000 == 0 {
+			percent := float32(i) / float32(total) * 100
+			fmt.Printf("Written %v out of %v lines (%.2f%%)\n", i, total, percent)
+		}
+		i++
 	}
-}
-
-// func readSolves(file string, maxMoves int) map[Embed]int {
-// 	var embed Embed
-// 	var nMoves int
-// 	bestSolves := make(map[Embed]int)
-// 	// n_embed := len(embed.Embed)
-
-// 	// Check for saved solves
-// 	csvReader, fRead := createReader(file)
-// 	for {
-// 		rec, err := csvReader.Read()
-// 		if err == io.EOF {
-// 			break
-// 		}
-// 		if err != nil {
-// 			log.Fatal(err)
-// 		}
-
-// 		for i, s := range rec {
-// 			if i < n_embed {
-// 				embed.Embed[i], _ = strconv.Atoi(s)
-// 			} else {
-// 				nMoves, _ = strconv.Atoi(s)
-// 			}
-// 		}
-// 		if nMoves <= maxMoves {
-// 			bestSolves[embed] = nMoves
-// 		}
-// 	}
-// 	fRead.Close()
-
-// 	return bestSolves
-// }
-
-func createReader(file string) (*csv.Reader, *os.File) {
-	fRead, errRead := os.Open(file)
-	if errRead != nil {
-		log.Fatal(errRead)
-	}
-
-	return csv.NewReader(fRead), fRead
 }
 
 func main() {
-	// var embed Embed
-	// bestSolves := make(map[Embed]int)
-
-	sourceFile := "solves/solves_"
-	// destinationFile := "solves/solves_"
+	file := "solves/v4/solves_"
 
 	// Create new solves (Generate maximum data for few moves)
 	total_iter := 1e6
 	step_size := 10000
 	steps := int(float64(total_iter) / float64(step_size))
 
-	collectEmbeds(sourceFile, steps, step_size, 1, 25)
-
-	// // Prune solves
-	// os.Remove(destinationFile + "features.csv")
-	// os.Remove(destinationFile + "labels.csv")
-
-	// rawFeatReader, fFile := createReader(sourceFile + "features.csv")
-	// rawLabReader, lFile := createReader(sourceFile + "labels.csv")
-
-	// step := 0
-	// for {
-	// 	// Read feature row
-	// 	feature, err := rawFeatReader.Read()
-	// 	if err == io.EOF {
-	// 		break
-	// 	}
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 	}
-
-	// 	// Read label row
-	// 	label, err := rawLabReader.Read()
-	// 	if err == io.EOF {
-	// 		break
-	// 	}
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 	}
-
-	// 	for i, s := range feature {
-	// 		embed.Embed[i], _ = strconv.Atoi(s)
-	// 	}
-	// 	newMoves, _ := strconv.Atoi(label[0])
-
-	// 	if oldMoves, ok := bestSolves[embed]; ok {
-	// 		if newMoves < oldMoves {
-	// 			bestSolves[embed] = newMoves
-	// 		}
-	// 	} else {
-	// 		bestSolves[embed] = newMoves
-	// 	}
-
-	// 	if step%100000 == 0 {
-	// 		fmt.Printf("Processed %v rows\n", step)
-	// 	}
-	// 	step++
-	// }
-
-	// fFile.Close()
-	// lFile.Close()
-
-	// fmt.Println("Starting writting...")
-	// writeSolves(bestSolves, destinationFile)
+	collectEmbeds(file, steps, step_size, 1, 25)
 }
