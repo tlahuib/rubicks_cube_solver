@@ -284,7 +284,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=500,
+        default=50,
         metavar="N",
         help="input batch size for training (default: 64)",
     )
@@ -310,7 +310,7 @@ if __name__ == "__main__":
         help="number of steps to train per epoch (default: 10)",
     )
     parser.add_argument(
-        "--lr", type=float, default=1e-4, metavar="LR", help="learning rate (default: 1e-4)"
+        "--lr", type=float, default=1e-5, metavar="LR", help="learning rate (default: 1e-5)"
     )
     parser.add_argument("--seed", type=int, default=1, metavar="S", help="random seed (default: 1)")
     parser.add_argument(
@@ -325,7 +325,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n_embed",
         type=int,
-        default=12,
+        default=2,
         metavar="N",
         help="how many embeddings per feature",
     )
@@ -374,8 +374,8 @@ if __name__ == "__main__":
         parser.add_argument("--data-dir", type=str, default=os.environ["SM_CHANNEL_TRAINING"])
         parser.add_argument("--num-gpus", type=int, default=os.environ["SM_NUM_GPUS"])
     except KeyError:
-        parser.add_argument("--model-dir", type=str, default=os.getcwd() + "/constructor/solves/v3")
-        parser.add_argument("--data-dir", type=str, default=os.getcwd() + "/constructor/solves/v3")
+        parser.add_argument("--model-dir", type=str, default=os.getcwd() + "/constructor/solves/v5")
+        parser.add_argument("--data-dir", type=str, default=os.getcwd() + "/constructor/solves/v5")
         parser.add_argument("--num-gpus", type=int, default=0)
 
     train(parser.parse_args())

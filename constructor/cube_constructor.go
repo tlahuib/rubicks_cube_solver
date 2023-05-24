@@ -31,7 +31,7 @@ type Embed struct {
 	Rotations [20][6]int
 }
 type EmbedAbs struct {
-	Embed [210]int
+	Embed [47]int
 }
 type EmbedMoves struct {
 	Embed  EmbedAbs
@@ -472,11 +472,8 @@ func EmbedCube(cube Cube) Embed {
 
 func AbsoluteEmbed(cube Cube) EmbedAbs {
 	var embedMat mat.Dense
-	var LT mat.Dense
-	var RT mat.Dense
 	var embed EmbedAbs
-	var Locations [20 * 3]float64
-	Rotations := [20 * 6]float64{}
+	embedArray := [20 * 9]float64{}
 
 	faceColors := GetFaceColors(cube)
 
@@ -487,32 +484,31 @@ func AbsoluteEmbed(cube Cube) EmbedAbs {
 
 		// Calculate location distances
 		for i, loc := range correctLocation {
-			Locations[piece.Id*3+i] = math.Abs(float64(loc - key[i]))
+			embedArray[piece.Id*9+i] = math.Abs(float64(loc - key[i]))
 		}
 
 		// Calculate rotation distances
 		for i, color := range []rune{'w', 'y', 'b', 'g', 'r', 'o'} {
 			if r, ok := piece.ColorMap[color]; ok {
 				coord := [2]int{faceColors[color], r}
-				Rotations[piece.Id*6+i] = math.Abs(float64(faceDistances[coord]))
+				embedArray[piece.Id*9+3+i] = math.Abs(float64(faceDistances[coord]))
 			}
 		}
 	}
 
-	L := mat.NewDense(20, 3, Locations[:])
-	R := mat.NewDense(20, 6, Rotations[:])
-	LT.Mul(L, L.T())
-	RT.Mul(R, R.T())
-	embedMat.Add(&LT, &RT)
+	prev := mat.NewDense(20, 9, embedArray[:])
+	embedMat.Mul(prev.T(), prev)
 
 	// Flatten matrix
 	count := 0
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 9; i++ {
 		for j := 0; j < i+1; j++ {
 			embed.Embed[count] = int(embedMat.At(i, j))
 			count++
 		}
 	}
+	logdet, sign := mat.LogDet(&embedMat)
+	embed.Embed[45], embed.Embed[46] = int(logdet), int(sign)
 
 	return embed
 }
@@ -618,7 +614,7 @@ func writeSolves(solves map[EmbedAbs]int, fileName string) {
 }
 
 func main() {
-	file := "solves/v4/solves_"
+	file := "solves/v5/solves_"
 
 	// Create new solves (Generate maximum data for few moves)
 	total_iter := 1e6
