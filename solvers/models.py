@@ -136,6 +136,39 @@ class Transformer(nn.Module):
         pred = torch.squeeze(self.ffwd_result(pred)) # (B)
 
         return pred
+    
+
+class MLP_layer(nn.Module):
+    def __init__(self, size) -> None:
+        super().__init__()
+        self.linear = nn.Linear(size, size)
+        self.activation = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.linear(x)
+        x = self.activation(x)
+        return x
+    
+
+class MLP(nn.Module):
+    def __init__(self, n_input, embed_multiplier, n_hidden_layers) -> None:
+        super().__init__()
+        self.hidden_layer_size = n_input * embed_multiplier
+        self.input_layer = nn.Linear(n_input, n_input * embed_multiplier)
+        self.hidden_layers = nn.Sequential(*[MLP_layer(self.hidden_layer_size) for _ in range(n_hidden_layers)])
+        self.output_layer = nn.Linear(self.hidden_layer_size, 1)
+
+    # def _init_weights(self, module):
+    #     if isinstance(module, nn.Linear):
+    #         torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+    #         if module.bias is not None:
+    #             torch.nn.init.zeros_(module.bias)
+
+    def forward(self, embed_x: tensor):
+        x = self.input_layer(embed_x)
+        x = self.hidden_layers(x)
+        x = torch.squeeze(self.output_layer(x))
+        return x
 
 
 def _get_feature_length(file):
@@ -158,14 +191,15 @@ def train(args):
     features_file = f"{args.data_dir}/solves_features.csv"
     labels_file = f"{args.data_dir}/solves_labels.csv"
     model_args = dict(
-        context_size = _get_feature_length(features_file),
+        context_size = _get_feature_length(features_file) - 2,
         n_embed = args.n_embed,
         n_heads = args.n_heads,
         n_layers = args.n_layers,
         dropout = args.dropout
     )
     logger.info(f"Creating transformer with hyperparameters:\n{model_args}")
-    model = Transformer(**model_args).to(device)
+    # model = Transformer(**model_args).to(device)
+    model = MLP(model_args['context_size'], args.n_embed, args.n_layers).to(device)
     # model = nn.DataParallel(model)
 
     if args.load:
@@ -188,6 +222,7 @@ def train(args):
             
             # Read data
             X = np.loadtxt(features_file, delimiter=',', max_rows=epoch_size, skiprows=(epoch - 1) * epoch_size)
+            X = X.T[:-2].T
             y = np.loadtxt(labels_file, delimiter=',', max_rows=epoch_size, skiprows=(epoch - 1) * epoch_size)
 
             shuffle = rng.choice(len(y), len(y), replace=False)
@@ -205,7 +240,8 @@ def train(args):
                 X_train, y_train = _get_batch(X[:n], y[:n], args.batch_size, rng)
                 optimizer.zero_grad()
                 output = model(X_train)
-                loss = F.mse_loss(output, y_train)
+                # loss = F.mse_loss(output, y_train)
+                loss = F.l1_loss(output, y_train)
                 agg_mse += F.mse_loss(output, y_train, reduction='sum').item()
                 agg_l1 += F.l1_loss(output, y_train, reduction="sum").item()
                 agg_lens += len(output)
@@ -216,8 +252,12 @@ def train(args):
                     pending_steps = total_steps - current_steps
                     time_elapsed = time() - tic
                     eta = (time_elapsed / current_steps) * pending_steps
+                    if agg_l1 / agg_lens > 1000000:
+                        log_text = "{}: \tEpoch: {} [{}/{} ({:.0f}%)] MSE: {:.2E}, L1: {:.2E}\t Elpased Steps: {} Pending Steps: {}\t ETA: {}"
+                    else: 
+                        log_text = "{}: \tEpoch: {} [{}/{} ({:.0f}%)] MSE: {:.2f}, L1: {:.2f}\t Elpased Steps: {} Pending Steps: {}\t ETA: {}"
                     logger.info(
-                        "{}: \tEpoch: {} [{}/{} ({:.0f}%)] MSE: {:.2f}, L1: {:.2f}\t Elpased Steps: {} Pending Steps: {}\t ETA: {}".format(
+                        log_text.format(
                             timedelta(seconds=int(time() - tic)),
                             epoch,
                             step,
@@ -255,7 +295,12 @@ def test(model, X, y, batch_size):
 
     mse_loss /= len(y)
     l1_loss /= len(y)
-    logger.info("Test set: MSE: {:.4f}, L1:{:.4f}\n".format(mse_loss, l1_loss))
+    if l1_loss > 1000000:
+        log_text = "Test set: MSE: {:.2E}, L1:{:.2E}\n"
+    else:
+        log_text = "Test set: MSE: {:.4f}, L1:{:.4f}\n"
+
+    logger.info(log_text.format(mse_loss, l1_loss))
 
 
 def model_fn(model_dir, model_args):
@@ -284,14 +329,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=50,
+        default=5000,
         metavar="N",
         help="input batch size for training (default: 64)",
     )
     parser.add_argument(
         "--data-loops",
         type=int,
-        default=10,
+        default=100,
         metavar="N",
         help="number of times to loop through the whole data (default: 2)",
     )
@@ -325,7 +370,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n_embed",
         type=int,
-        default=2,
+        default=20,
         metavar="N",
         help="how many embeddings per feature",
     )
@@ -339,7 +384,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n-layers",
         type=int,
-        default=6,
+        default=10,
         metavar="N",
         help="how many blocks of multi-headed attention in sequence",
     )
@@ -353,14 +398,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--load",
         type=bool,
-        default=False, 
+        default=True, 
         metavar="N",
         help="Whether to load or not a pretrained model (default: False)",
     )
     parser.add_argument(
         "--model-file",
         type=str,
-        default="checkpoint_0.pth",
+        default="model.pth",
         metavar="N",
         help="Which checkpoint to load.",
     )
@@ -374,7 +419,7 @@ if __name__ == "__main__":
         parser.add_argument("--data-dir", type=str, default=os.environ["SM_CHANNEL_TRAINING"])
         parser.add_argument("--num-gpus", type=int, default=os.environ["SM_NUM_GPUS"])
     except KeyError:
-        parser.add_argument("--model-dir", type=str, default=os.getcwd() + "/constructor/solves/v5")
+        parser.add_argument("--model-dir", type=str, default=os.getcwd() + "/constructor/solves/v5/Checkpoints")
         parser.add_argument("--data-dir", type=str, default=os.getcwd() + "/constructor/solves/v5")
         parser.add_argument("--num-gpus", type=int, default=0)
 
