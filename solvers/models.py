@@ -191,7 +191,7 @@ def train(args):
     features_file = f"{args.data_dir}/solves_features.csv"
     labels_file = f"{args.data_dir}/solves_labels.csv"
     model_args = dict(
-        context_size = _get_feature_length(features_file) - 2,
+        context_size = _get_feature_length(features_file),
         n_embed = args.n_embed,
         n_heads = args.n_heads,
         n_layers = args.n_layers,
@@ -222,7 +222,7 @@ def train(args):
             
             # Read data
             X = np.loadtxt(features_file, delimiter=',', max_rows=epoch_size, skiprows=(epoch - 1) * epoch_size)
-            X = X.T[:-2].T
+            X = X
             y = np.loadtxt(labels_file, delimiter=',', max_rows=epoch_size, skiprows=(epoch - 1) * epoch_size)
 
             shuffle = rng.choice(len(y), len(y), replace=False)
@@ -336,7 +336,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--data-loops",
         type=int,
-        default=100,
+        default=25,
         metavar="N",
         help="number of times to loop through the whole data (default: 2)",
     )
@@ -370,7 +370,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n_embed",
         type=int,
-        default=20,
+        default=12,
         metavar="N",
         help="how many embeddings per feature",
     )
@@ -384,7 +384,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n-layers",
         type=int,
-        default=10,
+        default=6,
         metavar="N",
         help="how many blocks of multi-headed attention in sequence",
     )
@@ -419,8 +419,8 @@ if __name__ == "__main__":
         parser.add_argument("--data-dir", type=str, default=os.environ["SM_CHANNEL_TRAINING"])
         parser.add_argument("--num-gpus", type=int, default=os.environ["SM_NUM_GPUS"])
     except KeyError:
-        parser.add_argument("--model-dir", type=str, default=os.getcwd() + "/constructor/solves/v5/Checkpoints")
-        parser.add_argument("--data-dir", type=str, default=os.getcwd() + "/constructor/solves/v5")
+        parser.add_argument("--model-dir", type=str, default=os.getcwd() + "/constructor/solves/v6/Checkpoints")
+        parser.add_argument("--data-dir", type=str, default=os.getcwd() + "/constructor/solves/v6")
         parser.add_argument("--num-gpus", type=int, default=0)
 
     train(parser.parse_args())
