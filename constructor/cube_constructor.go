@@ -13,6 +13,7 @@ import (
 
 type Cube struct {
 	Pieces   [3][3][3]Piece
+	Moves    []string
 	IsSolved bool
 }
 type Piece struct {
@@ -185,17 +186,47 @@ func initializeCube() Cube {
 	return cube
 }
 
+func copyPiece(piece Piece) Piece {
+	var newPiece Piece
+
+	newPiece.ColorMap = make(map[rune]int)
+	for color, location := range piece.ColorMap {
+		newPiece.ColorMap[color] = location
+	}
+
+	newPiece.Id = piece.Id
+
+	return newPiece
+}
+
+func copyCube(cube Cube) Cube {
+	var newCube Cube
+
+	for segment := 0; segment < 3; segment++ {
+		for row := 0; row < 3; row++ {
+			for col := 0; col < 3; col++ {
+				newCube.Pieces[segment][row][col] = copyPiece(cube.Pieces[segment][row][col])
+			}
+		}
+	}
+
+	newCube.IsSolved = cube.IsSolved
+	newCube.Moves = append(newCube.Moves, cube.Moves...)
+
+	return newCube
+}
+
 func moveZ(cube Cube, section int, direction bool) Cube {
 	var newPiece Piece
-	_cube := cube
+	newCube := copyCube(cube)
 
 	for row := 0; row < 3; row++ {
 		for col := 0; col < 3; col++ {
 			// Select the new piece for the location
 			if direction {
-				newPiece = cube.Pieces[section][2-col][row]
+				newPiece = copyPiece(cube.Pieces[section][2-col][row])
 			} else {
-				newPiece = cube.Pieces[section][col][2-row]
+				newPiece = copyPiece(cube.Pieces[section][col][2-row])
 			}
 
 			// Rotate new piece accordingly
@@ -204,24 +235,24 @@ func moveZ(cube Cube, section int, direction bool) Cube {
 			}
 
 			// Substitute the piece
-			_cube.Pieces[section][row][col] = newPiece
+			newCube.Pieces[section][row][col] = newPiece
 		}
 	}
 
-	return _cube
+	return newCube
 }
 
 func moveY(cube Cube, col int, direction bool) Cube {
 	var newPiece Piece
-	_cube := cube
+	newCube := copyCube(cube)
 
 	for section := 0; section < 3; section++ {
 		for row := 0; row < 3; row++ {
 			// Select the new piece for the location
 			if direction {
-				newPiece = cube.Pieces[row][2-section][col]
+				newPiece = copyPiece(cube.Pieces[row][2-section][col])
 			} else {
-				newPiece = cube.Pieces[2-row][section][col]
+				newPiece = copyPiece(cube.Pieces[2-row][section][col])
 			}
 
 			// Rotate new piece accordingly
@@ -230,25 +261,24 @@ func moveY(cube Cube, col int, direction bool) Cube {
 			}
 
 			// Substitute the piece
-			_cube.Pieces[section][row][col] = newPiece
-			// cube, moves := scrambleCube(cube, 5)
+			newCube.Pieces[section][row][col] = newPiece
 		}
 	}
 
-	return _cube
+	return newCube
 }
 
 func moveX(cube Cube, row int, direction bool) Cube {
 	var newPiece Piece
-	_cube := cube
+	newCube := copyCube(cube)
 
 	for section := 0; section < 3; section++ {
 		for col := 0; col < 3; col++ {
 			// Select the new piece for the location
 			if direction {
-				newPiece = cube.Pieces[2-col][row][section]
+				newPiece = copyPiece(cube.Pieces[2-col][row][section])
 			} else {
-				newPiece = cube.Pieces[col][row][2-section]
+				newPiece = copyPiece(cube.Pieces[col][row][2-section])
 			}
 
 			// Rotate new piece accordingly
@@ -257,39 +287,54 @@ func moveX(cube Cube, row int, direction bool) Cube {
 			}
 
 			// Substitute the piece
-			_cube.Pieces[section][row][col] = newPiece
+			newCube.Pieces[section][row][col] = newPiece
 		}
 	}
 
-	return _cube
+	return newCube
 }
 
 func MoveCube(cube Cube, move Move) Cube {
-	_cube := cube
+	var newCube Cube
 
 	switch move.Axis {
 	case 0:
-		_cube = moveX(_cube, move.Line, move.Direction)
+		newCube = moveX(cube, move.Line, move.Direction)
 	case 1:
-		_cube = moveY(_cube, move.Line, move.Direction)
+		newCube = moveY(cube, move.Line, move.Direction)
 	case 2:
-		_cube = moveZ(_cube, move.Line, move.Direction)
+		newCube = moveZ(cube, move.Line, move.Direction)
 	}
 
-	_cube = CheckSolvedCube(_cube)
-	return _cube
+	CheckSolvedCube(newCube)
+	newCube.Moves = append(newCube.Moves, MoveNotation[move])
+
+	return newCube
 }
 
-func RotateCube(cube Cube, axis int, direction bool) Cube {
-	_cube := cube
+func GetPossibleMoves(cube Cube) [18]Cube {
+	var movedCubes [18]Cube
 
-	for line := 0; line < 3; line++ {
-		move := Move{Axis: axis, Line: line, Direction: direction}
-		_cube = MoveCube(_cube, move)
+	count := 0
+	for newMove := range MoveNotation {
+		movedCubes[count] = MoveCube(cube, newMove)
+		count++
 	}
 
-	return _cube
+	return movedCubes
 }
+
+// TODO: Check for delete
+// func RotateCube(cube Cube, axis int, direction bool) Cube {
+// 	_cube := cube
+
+// 	for line := 0; line < 3; line++ {
+// 		move := Move{Axis: axis, Line: line, Direction: direction}
+// 		_cube = MoveCube(_cube, move)
+// 	}
+
+// 	return _cube
+// }
 
 func GetFaceColors(cube Cube) map[rune]int {
 	faceColors := make(map[rune]int)
@@ -340,42 +385,38 @@ func CheckCorrectLocation(piece Piece, faceColors map[rune]int) bool {
 	return true
 }
 
-func CheckSolvedCube(cube Cube) Cube {
-	_cube := cube
-	faceColors := GetFaceColors(_cube)
+func CheckSolvedCube(cube Cube) {
+	faceColors := GetFaceColors(cube)
 
 	for section := 0; section < 3; section++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
-				piece := _cube.Pieces[section][row][col]
+				piece := cube.Pieces[section][row][col]
 				if !CheckCorrectLocation(piece, faceColors) {
-					_cube.IsSolved = false
-					return _cube
+					cube.IsSolved = false
+					return
 				}
 			}
 		}
 	}
 
-	_cube.IsSolved = true
-	return _cube
+	cube.IsSolved = true
 }
 
-func scrambleCube(cube Cube, nMoves int) (Cube, []string) {
-	var moves []string
-	_cube := cube
+func scrambleCube(cube Cube, nMoves int) Cube {
+	newCube := copyCube(cube)
 
 	for i := 0; i < nMoves; i++ {
 		move := Move{rand.Intn(3), rand.Intn(3), rand.Float32() <= 0.5}
-		moves = append(moves, MoveNotation[move])
-		_cube = MoveCube(_cube, move)
+		newCube = MoveCube(newCube, move)
 	}
-	return _cube, moves
+	return newCube
 }
 
 func InitializeScrambledCube(nMoves int) Cube {
 	cube := initializeCube()
 
-	cube, _ = scrambleCube(cube, nMoves)
+	cube = scrambleCube(cube, nMoves)
 
 	return cube
 }
@@ -496,6 +537,25 @@ func AbsoluteEmbed(cube Cube) EmbedAbs {
 	return embed
 }
 
+func CompareEmbeddings(cube Cube, movedCube Cube) {
+	var diff []int
+
+	origEmbedding := AbsoluteEmbed(cube)
+	fmt.Println(origEmbedding.Embed)
+
+	movedEmbedding := AbsoluteEmbed(movedCube)
+	fmt.Println(movedEmbedding.Embed)
+
+	diffSum := 0
+	for i, mov := range movedEmbedding.Embed {
+		iDiff := mov - origEmbedding.Embed[i]
+		diff = append(diff, iDiff)
+		diffSum += iDiff
+	}
+	fmt.Println(diff)
+	fmt.Println(diffSum)
+}
+
 func scrambleEmbed(max_moves int, randomize_nMoves bool, c chan EmbedMoves) {
 	nMoves := max_moves
 	if randomize_nMoves {
@@ -597,12 +657,22 @@ func writeSolves(solves map[EmbedAbs]int, fileName string) {
 }
 
 func main() {
-	file := "solves/v6/solves_"
+	cube := initializeCube()
 
-	// Create new solves (Generate maximum data for few moves)
-	total_iter := 1e6
-	step_size := 10000
-	steps := int(float64(total_iter) / float64(step_size))
+	newCubes := GetPossibleMoves(cube)
 
-	collectEmbeds(file, steps, step_size, 1, 25)
+	for _, newCube := range newCubes {
+		PrintCube(newCube)
+	}
 }
+
+// func main() {
+// 	file := "solves/v6/solves_"
+
+// 	// Create new solves (Generate maximum data for few moves)
+// 	total_iter := 1e6
+// 	step_size := 10000
+// 	steps := int(float64(total_iter) / float64(step_size))
+
+// 	collectEmbeds(file, steps, step_size, 1, 25)
+// }
