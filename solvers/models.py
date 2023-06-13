@@ -13,6 +13,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data
 from torch import tensor
+import sqlalchemy as db
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -156,7 +157,8 @@ class MLP(nn.Module):
         self.hidden_layer_size = n_input * embed_multiplier
         self.input_layer = nn.Linear(n_input, n_input * embed_multiplier)
         self.hidden_layers = nn.Sequential(*[MLP_layer(self.hidden_layer_size) for _ in range(n_hidden_layers)])
-        self.output_layer = nn.Linear(self.hidden_layer_size, 1)
+        self.output_layer = nn.Linear(self.hidden_layer_size, 2)
+        self.softmax = nn.Softmax(1)
 
     # def _init_weights(self, module):
     #     if isinstance(module, nn.Linear):
@@ -165,20 +167,46 @@ class MLP(nn.Module):
     #             torch.nn.init.zeros_(module.bias)
 
     def forward(self, embed_x: tensor):
+
         x = self.input_layer(embed_x)
         x = self.hidden_layers(x)
-        x = torch.squeeze(self.output_layer(x))
+        x = self.output_layer(x)
+        x = self.softmax(x)
         return x
 
 
-def _get_feature_length(file):
-    sample = np.loadtxt(file, delimiter=',', max_rows=1)
-    return sample.shape[0]
+def connectDB(config_dir: str) -> db.Engine:
+    with open(config_dir + 'config.json') as f:
+        config = json.load(f)
+
+    engine = db.create_engine(
+        f"postgresql://{config['user']}:{config['pass']}@{config['host']}:{config['port']}/{config['db']}"
+    )
+    return engine
 
 
-def _get_batch(X, y, batch_size, rng):
-    batch = rng.choice(len(y), batch_size, replace=False)
-    return X[batch], y[batch]
+def getBatch(engine: db.Engine, batch: int, batch_size: int):
+    X, y = [], []
+
+    with engine.connect() as conn:
+        
+        for row in conn.execute(db.text(f"select embed_diff, (move_diff < 0)::int from rubik.differences where id between {batch * batch_size} and {(batch + 1) * batch_size}")):
+            X.append(row[0])
+            y.append(row[1])
+        
+    return X, y
+
+
+def getShape(engine: db.Engine):
+    X, _ = getBatch(engine, 0, 1)
+
+    with engine.connect() as conn:
+        for row in conn.execute(db.text(f"select count(*) from rubik.differences")):
+            size = row[0]
+        for row in conn.execute(db.text(f"select count(*) from rubik.differences where move_diff = -1")):
+            ratio = row[0] / size
+
+    return size, ratio, len(X[0])
 
 
 def train(args):
@@ -188,10 +216,13 @@ def train(args):
     # set the seed for generating random numbers
     torch.manual_seed(args.seed)
     
-    features_file = f"{args.data_dir}/solves_features.csv"
-    labels_file = f"{args.data_dir}/solves_labels.csv"
+    engine = connectDB(args.data_dir)
+    sample_size, ratio, feature_size = getShape(engine)
+    weights = tensor([ratio, 1-ratio], dtype=torch.float, device=device)
+    n_batches = sample_size // args.batch_size
+    logger.info(f"Performing {n_batches} batches per epoch")
     model_args = dict(
-        context_size = _get_feature_length(features_file),
+        context_size = feature_size,
         n_embed = args.n_embed,
         n_heads = args.n_heads,
         n_layers = args.n_layers,
@@ -203,104 +234,98 @@ def train(args):
     # model = nn.DataParallel(model)
 
     if args.load:
-        path = args.model_dir + "/" + args.model_file
+        path = args.model_dir + args.model_file
         logger.info(f"Loading model from {path}")
         model.load_state_dict(torch.load(path))
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
-    with open(labels_file) as f:
-        len_data = sum(1 for _ in f)
-    epoch_size = len_data // args.epochs
-    rng = np.random.default_rng()
+    # rng = np.random.default_rng()
 
-    total_steps = args.data_loops * args.epochs * args.steps
+    total_steps = args.epochs * n_batches
     tic = time()
-    for checkpoint in range(args.data_loops):
-        for epoch in range(1, args.epochs + 1):
-            logger.info(f"Starting epoch {epoch}")
-            
-            # Read data
-            X = np.loadtxt(features_file, delimiter=',', max_rows=epoch_size, skiprows=(epoch - 1) * epoch_size)
-            X = X
-            y = np.loadtxt(labels_file, delimiter=',', max_rows=epoch_size, skiprows=(epoch - 1) * epoch_size)
+    for epoch in range(1, args.epochs + 1):
+        logger.info(f"Starting epoch {epoch}")
 
-            shuffle = rng.choice(len(y), len(y), replace=False)
-            X = tensor(X[shuffle], dtype=torch.float, device=device)
-            y = tensor(y[shuffle], dtype=torch.float, device=device)
+        model.train()
+        X_test = tensor([], dtype=torch.float, device=device)
+        y_test = tensor([], dtype=torch.long, device=device)
+
+        unweighted_loss = 0
+        weighted_loss = 0
+        n_loss = 0
+        for step in range(n_batches):
+
+            # Read data
+            X, y = getBatch(engine, step, args.batch_size)
+            # shuffle = rng.choice(len(y), len(y), replace=False)
+            X = tensor(X, dtype=torch.float, device=device)
+            y = tensor(y, dtype=torch.long, device=device)
 
             # Train test split
             n = int(0.9 * len(y))
+            X_train, y_train = X[:n], y[:n]
+            X_test = torch.cat((X_test, X[n:]))
+            y_test = torch.cat((y_test, y[n:]))
 
-            model.train()
-            agg_mse = 0
-            agg_l1 = 0
-            agg_lens = 0
-            for step in range(1, args.steps + 1):
-                X_train, y_train = _get_batch(X[:n], y[:n], args.batch_size, rng)
-                optimizer.zero_grad()
-                output = model(X_train)
-                # loss = F.mse_loss(output, y_train)
-                loss = F.l1_loss(output, y_train)
-                agg_mse += F.mse_loss(output, y_train, reduction='sum').item()
-                agg_l1 += F.l1_loss(output, y_train, reduction="sum").item()
-                agg_lens += len(output)
-                loss.backward()
-                optimizer.step()
-                if step % args.log_interval == 0:
-                    current_steps = checkpoint * args.epochs * args.steps + (epoch - 1) * args.steps + step
-                    pending_steps = total_steps - current_steps
-                    time_elapsed = time() - tic
-                    eta = (time_elapsed / current_steps) * pending_steps
-                    if agg_l1 / agg_lens > 1000000:
-                        log_text = "{}: \tEpoch: {} [{}/{} ({:.0f}%)] MSE: {:.2E}, L1: {:.2E}\t Elpased Steps: {} Pending Steps: {}\t ETA: {}"
-                    else: 
-                        log_text = "{}: \tEpoch: {} [{}/{} ({:.0f}%)] MSE: {:.2f}, L1: {:.2f}\t Elpased Steps: {} Pending Steps: {}\t ETA: {}"
-                    logger.info(
-                        log_text.format(
-                            timedelta(seconds=int(time() - tic)),
-                            epoch,
-                            step,
-                            args.steps,
-                            100.0 * step / args.steps,
-                            agg_mse / agg_lens,
-                            agg_l1 / agg_lens,
-                            current_steps,
-                            pending_steps,
-                            timedelta(seconds=int(eta))
-                        )
+            optimizer.zero_grad()
+            output = model(X_train)
+            loss = F.cross_entropy(output, y_train, weight=weights)
+            unweighted_loss += F.cross_entropy(output, y_train, reduction="sum")
+            weighted_loss += F.cross_entropy(output, y_train, reduction="sum", weight=weights)
+            n_loss += len(y_train)
+            loss.backward()
+            optimizer.step()
+            if step % args.log_interval == 0:
+                current_steps = (epoch - 1) * n_batches + step + 1
+                pending_steps = total_steps - current_steps
+                time_elapsed = time() - tic
+                eta = (time_elapsed / current_steps) * pending_steps
+                log_text = "{}: \tEpoch: {} / {} ({:.2f}%) Loss: ({:.2f}, {:.2f})\t Elpased Steps: {} Pending Steps: {}\t ETA: {}\ty: {}  output: {}"
+                logger.info(
+                    log_text.format(
+                        timedelta(seconds=int(time() - tic)),
+                        epoch,
+                        args.epochs,
+                        step / n_batches * 100,
+                        unweighted_loss / n_loss,
+                        weighted_loss / n_loss,
+                        current_steps,
+                        pending_steps,
+                        timedelta(seconds=int(eta)),
+                        y_train[0],
+                        output.cpu().detach().numpy()[0]
                     )
-                    agg_mse = 0
-                    agg_l1 = 0
-                    agg_lens = 0
-            test(model, X[n:], y[n:], args.batch_size)
-        save_model(model, args.model_dir, f"checkpoint_{checkpoint}.pth")
+                )
+                unweighted_loss = 0
+                weighted_loss = 0
+                n_loss = 0
+                test(model, X_test, y_test, args.batch_size, weights)
+                X_test = tensor([], dtype=torch.float, device=device)
+                y_test = tensor([], dtype=torch.long, device=device)
+        save_model(model, args.model_dir, f"checkpoint_{epoch}.pth")
 
     logger.info(f"Saving the model in {args.model_dir}")
     save_model(model, args.model_dir)
 
 
-def test(model, X, y, batch_size):
+def test(model, X, y, batch_size, weights):
     model.eval()
-    mse_loss = 0
-    l1_loss = 0
+    unweighted_loss = 0
+    weighted_loss = 0
     steps = len(y) // batch_size
     with torch.no_grad():
         for step in range(steps):
             X_test = X[step * batch_size: min((step + 1) * batch_size, len(y))]
             y_test = y[step * batch_size: min((step + 1) * batch_size, len(y))]
             pred = model(X_test)
-            mse_loss += F.mse_loss(pred, y_test, reduction="sum").item()  # sum up batch loss
-            l1_loss += F.l1_loss(pred, y_test, reduction="sum").item()  # sum up batch loss
+            unweighted_loss += F.cross_entropy(pred, y_test, reduction="sum").item()
+            weighted_loss += F.cross_entropy(pred, y_test, reduction="sum", weight=weights).item()
 
-    mse_loss /= len(y)
-    l1_loss /= len(y)
-    if l1_loss > 1000000:
-        log_text = "Test set: MSE: {:.2E}, L1:{:.2E}\n"
-    else:
-        log_text = "Test set: MSE: {:.4f}, L1:{:.4f}\n"
+    unweighted_loss /= len(y)
+    weighted_loss /= len(y)
 
-    logger.info(log_text.format(mse_loss, l1_loss))
+    logger.info("Test Loss: ({:.4f}, {:.4f})\n".format(unweighted_loss, weighted_loss))
 
 
 def model_fn(model_dir, model_args):
@@ -347,13 +372,13 @@ if __name__ == "__main__":
         metavar="N",
         help="number of epochs to train (default: 10)",
     )
-    parser.add_argument(
-        "--steps",
-        type=int,
-        default=1000,
-        metavar="N",
-        help="number of steps to train per epoch (default: 10)",
-    )
+    # parser.add_argument(
+    #     "--steps",
+    #     type=int,
+    #     default=1000,
+    #     metavar="N",
+    #     help="number of steps to train per epoch (default: 10)",
+    # )
     parser.add_argument(
         "--lr", type=float, default=1e-5, metavar="LR", help="learning rate (default: 1e-5)"
     )
@@ -398,7 +423,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--load",
         type=bool,
-        default=True, 
+        default=False, 
         metavar="N",
         help="Whether to load or not a pretrained model (default: False)",
     )
@@ -419,8 +444,8 @@ if __name__ == "__main__":
         parser.add_argument("--data-dir", type=str, default=os.environ["SM_CHANNEL_TRAINING"])
         parser.add_argument("--num-gpus", type=int, default=os.environ["SM_NUM_GPUS"])
     except KeyError:
-        parser.add_argument("--model-dir", type=str, default=os.getcwd() + "/constructor/solves/v6/Checkpoints")
-        parser.add_argument("--data-dir", type=str, default=os.getcwd() + "/constructor/solves/v6")
+        parser.add_argument("--model-dir", type=str, default=os.getcwd() + "/constructor/solves/v8/Checkpoints/")
+        parser.add_argument("--data-dir", type=str, default=os.getcwd() + "/constructor/solves/v8/")
         parser.add_argument("--num-gpus", type=int, default=0)
 
     train(parser.parse_args())

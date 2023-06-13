@@ -4,12 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math"
 	"math/rand"
 	"os"
-	"strconv"
 	"strings"
+	"sync"
 
 	_ "github.com/lib/pq"
 )
@@ -32,10 +32,17 @@ type Move struct {
 	Line      int
 	Direction bool
 }
-type Embed struct {
-	Embed []int
+type DBCube struct {
+	Embed          []int
+	Representation string
+	minMoves       int
+}
+type DBDiff struct {
+	EmbedDiff []int
+	MoveDiff  int
 }
 
+var waitProcess sync.WaitGroup
 var initialCube = [][][][]rune{
 	{
 		{{'w', 'b', 'r'}, {'w', 'r'}, {'w', 'g', 'r'}},
@@ -561,9 +568,22 @@ func SprintCube(cube Cube) string {
 	return strCube
 }
 
-func EmbedCube(cube Cube) Embed {
+func jsonCube(cube Cube) []byte {
+	for i, s := range cube.Moves {
+		cube.Moves[i] = strings.ReplaceAll(s, "'", "''")
+	}
 
-	var embed Embed
+	b, err := json.Marshal(cube)
+	if err != nil {
+		panic(err)
+	}
+
+	return b
+}
+
+func EmbedCube(cube Cube) []int {
+
+	var embed []int
 	var faceEntropy [6]int
 
 	stdCube := standardizePosition(cube)
@@ -581,13 +601,13 @@ func EmbedCube(cube Cube) Embed {
 
 				// Calculate location distances
 				for i, loc := range correctLocation {
-					embed.Embed = append(embed.Embed, loc-coord[i])
+					embed = append(embed, loc-coord[i])
 				}
 
 				// Calculate rotation distances
 				for _, color := range []rune{'w', 'y', 'b', 'g', 'r', 'o'} {
 					if r, ok := piece.ColorMap[color]; ok {
-						embed.Embed = append(embed.Embed, faceDistances[[2]int{faceColors[color], r}])
+						embed = append(embed, faceDistances[[2]int{faceColors[color], r}])
 					}
 				}
 			}
@@ -607,22 +627,20 @@ func EmbedCube(cube Cube) Embed {
 		faceEntropy[faceId] = len(counter)
 	}
 
-	embed.Embed = append(embed.Embed, faceEntropy[:]...)
+	embed = append(embed, faceEntropy[:]...)
 
 	return embed
 }
 
-func CompareEmbeddings(origEmbed Embed, embed Embed) ([]int, []int) {
+func CompareEmbeddings(origEmbed []int, embed []int) []int {
 	var diff []int
-	var invDiff []int
 
-	for i, mov := range embed.Embed {
-		iDiff := mov - origEmbed.Embed[i]
+	for i, mov := range embed {
+		iDiff := mov - origEmbed[i]
 		diff = append(diff, iDiff)
-		invDiff = append(invDiff, -iDiff)
 	}
 
-	return diff, invDiff
+	return diff
 }
 
 func arrayToString(a []int, delim string) string {
@@ -642,24 +660,24 @@ func readConfig(file string) map[string]string {
 	// defer the closing of our jsonFile so that we can parse it later on
 	defer jsonFile.Close()
 
-	byteValue, _ := ioutil.ReadAll(jsonFile)
+	byteValue, _ := io.ReadAll(jsonFile)
 
 	json.Unmarshal([]byte(byteValue), &config)
 
 	return config
 }
 
-func writeConfig(config map[string]string, file string) {
-	jsonConfig, err := json.MarshalIndent(config, "", "\t")
-	if err != nil {
-		panic(fmt.Sprintf("Error while encoding the config file:\n\t%s", err.Error()))
-	}
+// func writeConfig(config map[string]string, file string) {
+// 	jsonConfig, err := json.MarshalIndent(config, "", "\t")
+// 	if err != nil {
+// 		panic(fmt.Sprintf("Error while encoding the config file:\n\t%s", err.Error()))
+// 	}
 
-	err = ioutil.WriteFile(file, jsonConfig, 0644)
-	if err != nil {
-		panic(fmt.Sprintf("Error while writting the config file:\n\t%s", err.Error()))
-	}
-}
+// 	err = io.WriteFile(file, jsonConfig, 0644)
+// 	if err != nil {
+// 		panic(fmt.Sprintf("Error while writting the config file:\n\t%s", err.Error()))
+// 	}
+// }
 
 func connectDataBase(config map[string]string) *sql.DB {
 
@@ -683,51 +701,150 @@ func connectDataBase(config map[string]string) *sql.DB {
 	return db
 }
 
-func insertCubeToDB(config map[string]string, db *sql.DB, embed Embed, strCube string, nMoves int) {
+func buildQueue(db *sql.DB) {
+	var hasData bool
+
+	rows, err := db.Query("select exists (select * from rubik.cubes q limit 1)")
+	if err != nil {
+		panic(err)
+	}
+
+	rows.Next()
+	err = rows.Scan(&hasData)
+	if err != nil {
+		panic(err)
+	}
+	rows.Close()
+
+	if !hasData {
+		cube := initializeCube()
+		addCubeToQueue(db, cube)
+		fmt.Println("---Initialized Queue---")
+		dbCube := DBCube{Embed: EmbedCube(cube), Representation: SprintCube(cube)}
+		insertCubeToDB(db, dbCube)
+	}
+}
+
+func addCubeToQueue(db *sql.DB, cube Cube) {
+
+	b := jsonCube(cube)
+
+	sqlStatement := fmt.Sprintf(`INSERT INTO rubik.queue (cube, n_moves) VALUES('%s', %v)`, string(b), len(cube.Moves))
+
+	_, err := db.Exec(sqlStatement)
+	if err != nil {
+		fmt.Println(sqlStatement)
+		panic(err)
+	}
+}
+
+func readQueue(db *sql.DB, nCubes int) []Cube {
+	var id int
+	var oldId int
+	var ids []int
+	var cubes []Cube
+	var nMoves int
 
 	sqlStatement := fmt.Sprintf(
-		`INSERT INTO %s.%s (abs_embedding, representation, min_moves) VALUES(ARRAY [%s], E'%s', %v)`,
-		config["schema"], config["table"], arrayToString(embed.Embed[:], ","), strCube, nMoves,
+		"select * from rubik.queue order by id limit %v",
+		nCubes,
+	)
+
+	rows, err := db.Query(sqlStatement)
+	if err != nil {
+		panic(err)
+	}
+
+	first := true
+	count := 0
+	for rows.Next() {
+		var b []byte
+		var newMoves int
+		var cube Cube
+
+		err = rows.Scan(&id, &b, &newMoves)
+		if err != nil {
+			panic(err)
+		}
+
+		ids = append(ids, id)
+		if first {
+			nMoves = newMoves
+			first = false
+		} else {
+			if oldId > id {
+				panic(fmt.Sprintf("Error: Old Id (%v) is not greater than the new Id (%v)", id, oldId))
+			}
+		}
+
+		oldId = id
+
+		if newMoves != nMoves {
+			fmt.Printf("Shifting from %v moves to %v moves\n", nMoves, newMoves)
+			break
+		}
+
+		err = json.Unmarshal(b, &cube)
+		if err != nil {
+			panic(err)
+		}
+
+		cubes = append(cubes, cube)
+
+		count++
+	}
+	rows.Close()
+
+	sqlStatement = fmt.Sprintf("DELETE FROM rubik.queue where id in (%s)", arrayToString(ids, ", "))
+
+	_, err = db.Exec(sqlStatement)
+	if err != nil {
+		panic(err)
+	}
+
+	return cubes
+}
+
+func insertCubeToDB(db *sql.DB, dbCube DBCube) {
+
+	sqlStatement := fmt.Sprintf(
+		`INSERT INTO rubik.cubes (abs_embedding, representation, min_moves) VALUES(ARRAY [%s], E'%s', %v)`,
+		arrayToString(dbCube.Embed[:], ","), dbCube.Representation, dbCube.minMoves,
 	)
 
 	_, err := db.Exec(sqlStatement)
 	if err != nil {
 		if err.Error() != `pq: duplicate key value violates unique constraint "cubes_pkey"` {
-			panic(fmt.Sprintf("%s:\n\tARRAY [%s]", err.Error(), arrayToString(embed.Embed[:], ",")))
+			panic(fmt.Sprintf("%s:\n\tARRAY [%s]", err.Error(), arrayToString(dbCube.Embed[:], ",")))
 		}
 	}
+
 }
 
-func insertEmbedToDB(config map[string]string, db *sql.DB, origEmbed Embed, embed Embed, moveDiff int) {
-	diffEmbed, invDiffEmbed := CompareEmbeddings(origEmbed, embed)
+func insertEmbedToDB(db *sql.DB, dbDiff DBDiff) {
 
-	sqlStatement := "INSERT INTO %s.differences (embed_diff, move_diff) VALUES(ARRAY [%s], %v)"
+	sqlStatement := "INSERT INTO rubik.differences (embed_diff, move_diff) VALUES(ARRAY [%s], %v)"
 
-	_, err := db.Exec(fmt.Sprintf(sqlStatement, config["schema"], arrayToString(diffEmbed, ","), moveDiff))
+	_, err := db.Exec(fmt.Sprintf(sqlStatement, arrayToString(dbDiff.EmbedDiff, ","), dbDiff.MoveDiff))
 	if err != nil {
-		panic(fmt.Sprintf("%s:\n\tARRAY [%s]", err.Error(), arrayToString(diffEmbed, ",")))
+		panic(fmt.Sprintf("%s:\n\tARRAY [%s]", err.Error(), arrayToString(dbDiff.EmbedDiff, ",")))
 	}
 
-	_, err = db.Exec(fmt.Sprintf(sqlStatement, config["schema"], arrayToString(invDiffEmbed, ","), -moveDiff))
-	if err != nil {
-		panic(fmt.Sprintf("%s:\n\tARRAY [%s]", err.Error(), arrayToString(invDiffEmbed, ",")))
-	}
 }
 
-func getCubeMoves(config map[string]string, db *sql.DB, embed Embed, currentMoves int) int {
+func getCubeMoves(db *sql.DB, embed []int, currentMoves int) int {
 	var nMoves int
 
 	sqlStatement := fmt.Sprintf(
-		"SELECT min_moves FROM %s.%s WHERE abs_embedding = ARRAY [%v]",
-		config["schema"], config["table"], arrayToString(embed.Embed[:], ","),
+		"SELECT min_moves FROM rubik.cubes WHERE abs_embedding = ARRAY [%v]",
+		arrayToString(embed[:], ","),
 	)
 
 	rows, err := db.Query(sqlStatement)
 	if err != nil {
-		panic(fmt.Sprintf("Error while reading ARRAY [%s]:\n\t%s", arrayToString(embed.Embed[:], ","), err.Error()))
+		panic(fmt.Sprintf("Error while reading ARRAY [%s]:\n\t%s", arrayToString(embed[:], ","), err.Error()))
 	}
 
-	defer rows.Close()
 	rows.Next()
 	err = rows.Scan(&nMoves)
 	if err != nil {
@@ -737,110 +854,138 @@ func getCubeMoves(config map[string]string, db *sql.DB, embed Embed, currentMove
 			panic(err)
 		}
 	}
+	rows.Close()
 
 	return nMoves
 }
 
-func getDiff(config map[string]string, db *sql.DB, diff []int) int {
-	var nMoves int
+func calculateDiff(db *sql.DB, origEmbed []int, origMoves int, cube Cube, cCube chan DBCube, cDiff chan DBDiff) {
 
-	sqlStatement := fmt.Sprintf(
-		"SELECT move_diff FROM %s.differences WHERE embed_diff = ARRAY [%v]",
-		config["schema"], arrayToString(diff[:], ","),
-	)
+	// Calculate new embedding and send it for writting
+	newEmbed := EmbedCube(cube)
+	minMoves := getCubeMoves(db, newEmbed, origMoves+1)
+	cCube <- DBCube{Embed: EmbedCube(cube), Representation: SprintCube(cube), minMoves: minMoves}
 
-	rows, err := db.Query(sqlStatement)
-	if err != nil {
-		panic(fmt.Sprintf("Error while reading ARRAY [%s]:\n\t%s", arrayToString(diff[:], ","), err.Error()))
+	// Calculate differences
+	diffEmbed := CompareEmbeddings(origEmbed, newEmbed)
+
+	diffEmbed = append(origEmbed, diffEmbed...)
+
+	if math.Abs(float64(minMoves-origMoves)) > 1 {
+		fmt.Println(origEmbed)
+		fmt.Println(newEmbed)
+		panic(fmt.Sprintf("Error, move difference greater than one (%v, %v)", origMoves, minMoves))
 	}
 
-	defer rows.Close()
-	rows.Next()
-	err = rows.Scan(&nMoves)
-	if err != nil {
-		panic(err)
-	}
+	// Send differences for writting
+	cDiff <- DBDiff{EmbedDiff: diffEmbed, MoveDiff: minMoves - origMoves}
 
-	return nMoves
 }
 
-func buildQueue(nMoves int) []Cube {
+func processCube(db *sql.DB, cube Cube, cCube chan DBCube, cDiff chan DBDiff, cQueue chan Cube) {
 
-	queue := []Cube{initializeCube()}
+	origEmbed := EmbedCube(cube)
+	origMoves := getCubeMoves(db, origEmbed, -1)
+	if origMoves == -1 {
+		fmt.Println(cube.Moves)
+		PrintCube(cube)
+		panic(fmt.Sprintf("Error: Cube previously processed not found\n\t%s", arrayToString(origEmbed, ",")))
+	}
 
-	for i := 0; i < nMoves; i++ {
-		buffer := []Cube{}
-		for _, cube := range queue {
-			buffer = append(buffer, GetPossibleMoves(cube)...)
+	possibleMoves := GetPossibleMoves(cube)
+	for _, newCube := range possibleMoves {
+		cQueue <- newCube
+		go calculateDiff(db, origEmbed, origMoves, newCube, cCube, cDiff)
+	}
+
+}
+
+func gatherEmbeds(db *sql.DB, c chan DBCube) {
+
+	for {
+		dbCube, more := <-c
+		if !more {
+			return
 		}
-		queue = buffer
-	}
 
-	return queue
+		insertCubeToDB(db, dbCube)
+
+		waitProcess.Done()
+	}
 
 }
 
-func exploreCubes(directory string) {
+func gatherDiffs(db *sql.DB, c chan DBDiff) {
+
+	for {
+		dbDiff, more := <-c
+		if !more {
+			return
+		}
+
+		insertEmbedToDB(db, dbDiff)
+
+		waitProcess.Done()
+	}
+
+}
+
+func gatherQueue(db *sql.DB, c chan Cube) {
+
+	for {
+		cube, more := <-c
+		if !more {
+			return
+		}
+
+		addCubeToQueue(db, cube)
+
+		waitProcess.Done()
+	}
+
+}
+
+func exploreCubes(directory string, n_parallel int) {
 
 	// Read config file
 	config := readConfig(directory + "config.json")
-	lastCompletedState, err := strconv.Atoi(config["completed"])
-	if err != nil {
-		fmt.Printf("Error during 'completed state' conversion in config file: %v", config["completed"])
-	}
 
 	// Connect to db
 	db := connectDataBase(config)
 	defer db.Close()
 
 	// Check for first value
-	if lastCompletedState < 0 {
-		insertCubeToDB(config, db, EmbedCube(initializeCube()), SprintCube(initializeCube()), 0)
-		lastCompletedState = 0
-	}
+	buildQueue(db)
 
-	queue := buildQueue(lastCompletedState)
-
+	// Process by batches
 	for {
-		buffer := []Cube{}
 
-		for _, cube := range queue {
-			origEmbed := EmbedCube(cube)
-			origMoves := getCubeMoves(config, db, origEmbed, lastCompletedState)
-			possibleMoves := GetPossibleMoves(cube)
-			buffer = append(buffer, possibleMoves...)
+		// Initialize processes for writting
+		cCubes := make(chan DBCube)
+		cDiff := make(chan DBDiff)
+		cQueue := make(chan Cube)
+		go gatherEmbeds(db, cCubes)
+		go gatherDiffs(db, cDiff)
+		go gatherQueue(db, cQueue)
 
-			for _, newCube := range possibleMoves {
-				embed := EmbedCube(newCube)
-				nMoves := getCubeMoves(config, db, embed, lastCompletedState+1)
+		// Read queue
+		buffer := readQueue(db, n_parallel)
 
-				if math.Abs(float64(nMoves-origMoves)) > 1 {
-					// TODO:
-					// - Look for extra info within the embedding
-					fmt.Println("\n\n----------------------------")
-					fmt.Println(origMoves)
-					fmt.Println(arrayToString(origEmbed.Embed[:], ","))
-					PrintCube(cube)
-					fmt.Println("\n\n")
-					fmt.Println(nMoves)
-					fmt.Println(embed.Embed[:], ",")
-
-					PrintCube(standardizePosition(newCube))
-					panic(fmt.Sprintf("Difference (%v) is greater than |1|", nMoves-origMoves))
-				}
-				insertCubeToDB(config, db, embed, SprintCube(newCube), nMoves)
-				insertEmbedToDB(config, db, origEmbed, embed, nMoves-origMoves)
-			}
+		waitProcess.Add(len(buffer) * (len(MoveNotation) * 3))
+		// Launch parallel processing
+		for _, cube := range buffer {
+			go processCube(db, cube, cCubes, cDiff, cQueue)
 		}
 
-		fmt.Printf("--- Completed for [%v] moves ---\n", lastCompletedState)
-		lastCompletedState++
-		config["completed"] = strconv.Itoa(lastCompletedState)
-		writeConfig(config, directory+"config.json")
-		queue = buffer
+		waitProcess.Wait()
+		close(cCubes)
+		close(cDiff)
+		close(cQueue)
 	}
+
 }
 
 func main() {
-	exploreCubes("solves/v7/")
+	directory := "solves/v7/"
+	exploreCubes(directory, 10)
 }
