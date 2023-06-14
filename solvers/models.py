@@ -270,7 +270,8 @@ def train(args):
 
             optimizer.zero_grad()
             output = model(X_train)
-            loss = F.cross_entropy(output, y_train, weight=weights)
+            # loss = F.cross_entropy(output, y_train, weight=weights)
+            loss = F.cross_entropy(output, y_train)
             unweighted_loss += F.cross_entropy(output, y_train, reduction="sum")
             weighted_loss += F.cross_entropy(output, y_train, reduction="sum", weight=weights)
             n_loss += len(y_train)
@@ -358,17 +359,17 @@ if __name__ == "__main__":
         metavar="N",
         help="input batch size for training (default: 64)",
     )
-    parser.add_argument(
-        "--data-loops",
-        type=int,
-        default=25,
-        metavar="N",
-        help="number of times to loop through the whole data (default: 2)",
-    )
+    # parser.add_argument(
+    #     "--data-loops",
+    #     type=int,
+    #     default=25,
+    #     metavar="N",
+    #     help="number of times to loop through the whole data (default: 2)",
+    # )
     parser.add_argument(
         "--epochs",
         type=int,
-        default=50,
+        default=10,
         metavar="N",
         help="number of epochs to train (default: 10)",
     )
@@ -423,7 +424,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--load",
         type=bool,
-        default=False, 
+        default=True, 
         metavar="N",
         help="Whether to load or not a pretrained model (default: False)",
     )
