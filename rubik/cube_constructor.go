@@ -13,6 +13,7 @@ type Cube struct {
 type Piece struct {
 	Id       int
 	ColorMap map[rune]int // Each color has a face assigned to it
+	ColorId  map[rune]int // Each color of each piece has an id to help with embedding
 }
 type Rotation struct {
 	Axis      int
@@ -135,36 +136,15 @@ var standardMoves = map[[4]int][]int{
 	{2, 2, 0, 1}: {2, 2}, {2, 2, 0, 2}: {0, 4}, {2, 2, 0, 5}: {2, 4},
 	{2, 2, 2, 1}: {5, 0, 0}, {2, 2, 2, 3}: {0, 3, 3}, {2, 2, 2, 5}: {0, 0, 2},
 }
-var flatLocations = map[[3]int]int{
-	{0, 0, 0}: 0,
-	{0, 0, 1}: 1,
-	{0, 0, 2}: 2,
-	{0, 1, 0}: 3,
-	{0, 1, 2}: 4,
-	{0, 2, 0}: 5,
-	{0, 2, 1}: 6,
-	{0, 2, 2}: 7,
-	{1, 0, 0}: 8,
-	{1, 0, 2}: 9,
-	{1, 2, 0}: 10,
-	{1, 2, 2}: 11,
-	{2, 0, 0}: 12,
-	{2, 0, 1}: 13,
-	{2, 0, 2}: 14,
-	{2, 1, 0}: 15,
-	{2, 1, 2}: 16,
-	{2, 2, 0}: 17,
-	{2, 2, 1}: 18,
-	{2, 2, 2}: 19,
-}
-var faceDistances = map[[2]int]int{
-	{0, 0}: 0, {1, 0}: 2, {2, 0}: 1, {3, 0}: -1, {4, 0}: -1, {5, 0}: 1,
-	{0, 1}: -2, {1, 1}: 0, {2, 1}: -1, {3, 1}: 1, {4, 1}: 1, {5, 1}: -1,
-	{0, 2}: -1, {1, 2}: 1, {2, 2}: 0, {3, 2}: 2, {4, 2}: -1, {5, 2}: 1,
-	{0, 3}: 1, {1, 3}: -1, {2, 3}: -2, {3, 3}: 0, {4, 3}: 1, {5, 3}: -1,
-	{0, 4}: 1, {1, 4}: -1, {2, 4}: 1, {3, 4}: -1, {4, 4}: 0, {5, 4}: 2,
-	{0, 5}: -1, {1, 5}: 1, {2, 5}: -1, {3, 5}: 1, {4, 5}: -2, {5, 5}: 0,
-}
+
+// var faceDistances = map[[2]int]int{
+// 	{0, 0}: 0, {1, 0}: 2, {2, 0}: 1, {3, 0}: -1, {4, 0}: -1, {5, 0}: 1,
+// 	{0, 1}: -2, {1, 1}: 0, {2, 1}: -1, {3, 1}: 1, {4, 1}: 1, {5, 1}: -1,
+// 	{0, 2}: -1, {1, 2}: 1, {2, 2}: 0, {3, 2}: 2, {4, 2}: -1, {5, 2}: 1,
+// 	{0, 3}: 1, {1, 3}: -1, {2, 3}: -2, {3, 3}: 0, {4, 3}: 1, {5, 3}: -1,
+// 	{0, 4}: 1, {1, 4}: -1, {2, 4}: 1, {3, 4}: -1, {4, 4}: 0, {5, 4}: 2,
+// 	{0, 5}: -1, {1, 5}: 1, {2, 5}: -1, {3, 5}: 1, {4, 5}: -2, {5, 5}: 0,
+// }
 
 func getInitialRotations(colors []rune) map[rune]int {
 	colorMap := make(map[rune]int)
@@ -181,12 +161,22 @@ func InitializeCube() Cube {
 	// The faces are ordered front, back, left, right, top, bottom
 	var cube Cube
 
+	pieceId := 0
+	colorId := 0
 	for layer := 0; layer < 3; layer++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
-				colors := initialCube[layer][row][col]
-				colorMap := getInitialRotations(colors)
-				cube.Pieces[layer][row][col] = Piece{ColorMap: colorMap, Id: flatLocations[[3]int{layer, row, col}]}
+				if [3]int{layer, row, col} != [3]int{1, 1, 1} {
+					colors := initialCube[layer][row][col]
+					colorMap := getInitialRotations(colors)
+					colorIdMap := make(map[rune]int)
+					for _, color := range colors {
+						colorIdMap[color] = colorId
+						colorId++
+					}
+					cube.Pieces[layer][row][col] = Piece{ColorMap: colorMap, Id: pieceId, ColorId: colorIdMap}
+					pieceId++
+				}
 			}
 		}
 	}
@@ -199,8 +189,10 @@ func copyPiece(piece Piece) Piece {
 	var newPiece Piece
 
 	newPiece.ColorMap = make(map[rune]int)
+	newPiece.ColorId = make(map[rune]int)
 	for color, location := range piece.ColorMap {
 		newPiece.ColorMap[color] = location
+		newPiece.ColorId[color] = piece.ColorId[color]
 	}
 
 	newPiece.Id = piece.Id
@@ -549,64 +541,44 @@ func SprintCube(cube Cube) string {
 	return strCube
 }
 
-func EmbedCube(cube Cube) []int {
+func getLocationByID(id int) []int {
 
-	var embed []int
-	var faceEntropy [6]int
+	cId := id
+	if cId >= 14 {
+		cId++
+	}
+
+	col := cId % 3
+	cId = (cId - col) / 3
+
+	row := cId % 3
+	segment := (cId - row) / 3
+
+	return []int{segment, row, col}
+}
+
+func EmbedCube(cube Cube) ([]int, []int) {
+
+	var pieceEmbed []int
+	var colorEmbed []int
 
 	stdCube := standardizePosition(cube)
-	faceColors := GetFaceColors(stdCube)
 
 	for segment := 0; segment < 3; segment++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
-
-				coord := [3]int{segment, row, col}
-
-				// Piece & Locations
-				piece := stdCube.Pieces[segment][row][col]
-				correctLocation := GetCorrectLocation(piece, faceColors)
-
-				// Calculate location distances
-				for i, loc := range correctLocation {
-					embed = append(embed, loc-coord[i])
-				}
-
-				// Calculate rotation distances
-				for _, color := range []rune{'w', 'y', 'b', 'g', 'r', 'o'} {
-					if r, ok := piece.ColorMap[color]; ok {
-						embed = append(embed, faceDistances[[2]int{faceColors[color], r}])
+				if [3]int{segment, row, col} != [3]int{1, 1, 1} {
+					piece := stdCube.Pieces[segment][row][col]
+					pieceEmbed = append(pieceEmbed, piece.Id)
+					initialLocation := getLocationByID(piece.Id)
+					colors := initialCube[initialLocation[0]][initialLocation[1]][initialLocation[2]]
+					for _, color := range colors {
+						colorEmbed = append(colorEmbed, piece.ColorId[color])
 					}
 				}
 			}
 		}
 	}
 
-	faces := CubeToFaces(stdCube)
-	for _, faceId := range faceColors {
-		face := faces[faceId]
-		counter := make(map[rune]int)
-		for _, row := range face {
-			for _, val := range row {
-				counter[val] = 0
-			}
-		}
-
-		faceEntropy[faceId] = len(counter)
-	}
-
-	embed = append(embed, faceEntropy[:]...)
-
-	return embed
-}
-
-func CompareEmbeddings(origEmbed []int, embed []int) []int {
-	var diff []int
-
-	for i, mov := range embed {
-		iDiff := mov - origEmbed[i]
-		diff = append(diff, iDiff)
-	}
-
-	return diff
+	return pieceEmbed, colorEmbed
 }

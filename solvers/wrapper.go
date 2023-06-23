@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -28,21 +27,21 @@ func encodeCube(cube rubik.Cube) {
 
 }
 
-func encodeCubeDiff(cube rubik.Cube, newCube rubik.Cube) {
-	b, err := json.Marshal(newCube)
-	handleErr(err)
-	embed := rubik.EmbedCube(cube)
-	newEmbed := rubik.EmbedCube(newCube)
-	diff := rubik.CompareEmbeddings(embed, newEmbed)
+// func encodeCubeDiff(cube rubik.Cube, newCube rubik.Cube) {
+// 	b, err := json.Marshal(newCube)
+// 	handleErr(err)
+// 	pieceEmbed, colorEmbed := rubik.EmbedCube(cube)
+// 	newPieceEmbed, newColorEmbed := rubik.EmbedCube(newCube)
+// 	// diff := rubik.CompareEmbeddings(embed, newEmbed)
 
-	fmt.Print(b)
-	fmt.Print("|")
-	fmt.Print(newEmbed)
-	fmt.Print("|")
-	fmt.Print(append(newEmbed, diff...))
-	fmt.Print("\n")
+// 	// fmt.Print(b)
+// 	// fmt.Print("|")
+// 	// fmt.Print(newEmbed)
+// 	// fmt.Print("|")
+// 	// fmt.Print(append(newEmbed, diff...))
+// 	// fmt.Print("\n")
 
-}
+// }
 
 func decodeCube(eCube string) rubik.Cube {
 	var cube rubik.Cube
@@ -69,25 +68,32 @@ func receiveRandomCube(sMoves string) {
 	encodeCube(cube)
 }
 
-func getPossibleMoves(eCube string) {
+// func getPossibleMoves(eCube string) {
 
-	cube := decodeCube(eCube)
+// 	cube := decodeCube(eCube)
 
-	for _, newCube := range rubik.GetPossibleMoves(cube) {
-		encodeCubeDiff(cube, newCube)
-	}
+// 	for _, newCube := range rubik.GetPossibleMoves(cube) {
+// 		encodeCubeDiff(cube, newCube)
+// 	}
 
-}
+// }
 
 func main() {
-	args := os.Args[1:]
+	// 	args := os.Args[1:]
 
-	switch f := args[0]; f {
-	case "receiveRandomCube":
-		receiveRandomCube(args[1])
-	case "getPossibleMoves":
-		getPossibleMoves(args[1])
-	default:
-		fmt.Println("No valid function selected.")
-	}
+	// 	switch f := args[0]; f {
+	// 	case "receiveRandomCube":
+	// 		receiveRandomCube(args[1])
+	// 	case "getPossibleMoves":
+	// 		getPossibleMoves(args[1])
+	// 	default:
+	// 		fmt.Println("No valid function selected.")
+	// 	}
+
+	cube := rubik.InitializeScrambledCube(1)
+
+	pieceEmbed, colorEmbed := rubik.EmbedCube(cube)
+
+	fmt.Println(pieceEmbed)
+	fmt.Println(colorEmbed)
 }
