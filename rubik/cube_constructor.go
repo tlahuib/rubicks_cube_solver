@@ -137,15 +137,6 @@ var standardMoves = map[[4]int][]int{
 	{2, 2, 2, 1}: {5, 0, 0}, {2, 2, 2, 3}: {0, 3, 3}, {2, 2, 2, 5}: {0, 0, 2},
 }
 
-// var faceDistances = map[[2]int]int{
-// 	{0, 0}: 0, {1, 0}: 2, {2, 0}: 1, {3, 0}: -1, {4, 0}: -1, {5, 0}: 1,
-// 	{0, 1}: -2, {1, 1}: 0, {2, 1}: -1, {3, 1}: 1, {4, 1}: 1, {5, 1}: -1,
-// 	{0, 2}: -1, {1, 2}: 1, {2, 2}: 0, {3, 2}: 2, {4, 2}: -1, {5, 2}: 1,
-// 	{0, 3}: 1, {1, 3}: -1, {2, 3}: -2, {3, 3}: 0, {4, 3}: 1, {5, 3}: -1,
-// 	{0, 4}: 1, {1, 4}: -1, {2, 4}: 1, {3, 4}: -1, {4, 4}: 0, {5, 4}: 2,
-// 	{0, 5}: -1, {1, 5}: 1, {2, 5}: -1, {3, 5}: 1, {4, 5}: -2, {5, 5}: 0,
-// }
-
 func getInitialRotations(colors []rune) map[rune]int {
 	colorMap := make(map[rune]int)
 
@@ -544,7 +535,7 @@ func SprintCube(cube Cube) string {
 func getLocationByID(id int) []int {
 
 	cId := id
-	if cId >= 14 {
+	if cId >= 13 {
 		cId++
 	}
 
@@ -562,13 +553,13 @@ func EmbedCube(cube Cube) ([]int, []int) {
 	var pieceEmbed []int
 	var colorEmbed []int
 
-	stdCube := standardizePosition(cube)
+	// stdCube := standardizePosition(cube)
 
 	for segment := 0; segment < 3; segment++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
 				if [3]int{segment, row, col} != [3]int{1, 1, 1} {
-					piece := stdCube.Pieces[segment][row][col]
+					piece := cube.Pieces[segment][row][col]
 					pieceEmbed = append(pieceEmbed, piece.Id)
 					initialLocation := getLocationByID(piece.Id)
 					colors := initialCube[initialLocation[0]][initialLocation[1]][initialLocation[2]]

@@ -111,9 +111,9 @@ class Transformer(nn.Module):
 
         # Transformer layers
         self.blocks = nn.Sequential(*[Block(n_embed, n_heads, dropout) for _ in range(n_layers)])
-        self.ln_f = nn.LayerNorm(2 * n_embed) # final layer norm
-        self.lm_head = nn.Linear(2 * n_embed, 18)
-        # self.ffwd_result = FeedFoward(context_size, 0.2, 1)
+        self.ln_f = nn.LayerNorm(n_embed) # final layer norm
+        self.lm_head = nn.Linear(n_embed, 1)
+        self.ffwd_result = FeedFoward(location_size + color_size, 0.2, 18)
 
         # Initialize weights
         self.apply(self._init_weights)
@@ -127,11 +127,14 @@ class Transformer(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, loc_embed: tensor, color_embed: tensor):
-        x = torch.cat((self.loc_embedding(loc_embed), self.color_embedding(color_embed)), 1)  # (B, C, E)
+        x_loc = self.loc_embedding(loc_embed)
+        x_col = self.color_embedding(color_embed)
+        x = torch.cat((x_loc, x_col), 1)  # (B, C, E)
         x = self.blocks(x) # (B, C, E)
         x = self.ln_f(x) # (B, C, E)
         pred = torch.squeeze(self.lm_head(x)) # (B, C)
-        pred = torch.squeeze(self.ffwd_result(pred)) # (B)
+        pred = torch.squeeze(self.ffwd_result(pred)) # (B, 18)
+        pred = F.softmax(pred, -1)
 
         return pred
     

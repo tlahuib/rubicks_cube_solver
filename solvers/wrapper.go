@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -20,28 +21,16 @@ func encodeCube(cube rubik.Cube) {
 	b, err := json.Marshal(cube)
 	handleErr(err)
 
+	loc_embed, color_embed := rubik.EmbedCube(cube)
+
 	fmt.Print(b)
 	fmt.Print("|")
-	fmt.Print(rubik.EmbedCube(cube))
+	fmt.Print(loc_embed)
+	fmt.Print("|")
+	fmt.Print(color_embed)
 	fmt.Print("\n")
 
 }
-
-// func encodeCubeDiff(cube rubik.Cube, newCube rubik.Cube) {
-// 	b, err := json.Marshal(newCube)
-// 	handleErr(err)
-// 	pieceEmbed, colorEmbed := rubik.EmbedCube(cube)
-// 	newPieceEmbed, newColorEmbed := rubik.EmbedCube(newCube)
-// 	// diff := rubik.CompareEmbeddings(embed, newEmbed)
-
-// 	// fmt.Print(b)
-// 	// fmt.Print("|")
-// 	// fmt.Print(newEmbed)
-// 	// fmt.Print("|")
-// 	// fmt.Print(append(newEmbed, diff...))
-// 	// fmt.Print("\n")
-
-// }
 
 func decodeCube(eCube string) rubik.Cube {
 	var cube rubik.Cube
@@ -59,7 +48,8 @@ func decodeCube(eCube string) rubik.Cube {
 	return cube
 }
 
-func receiveRandomCube(sMoves string) {
+func receiveRandomCubes(sMoves string) {
+
 	nMoves, err := strconv.Atoi(sMoves)
 	handleErr(err)
 
@@ -68,32 +58,15 @@ func receiveRandomCube(sMoves string) {
 	encodeCube(cube)
 }
 
-// func getPossibleMoves(eCube string) {
-
-// 	cube := decodeCube(eCube)
-
-// 	for _, newCube := range rubik.GetPossibleMoves(cube) {
-// 		encodeCubeDiff(cube, newCube)
-// 	}
-
-// }
-
 func main() {
-	// 	args := os.Args[1:]
+	args := os.Args[1:]
 
-	// 	switch f := args[0]; f {
-	// 	case "receiveRandomCube":
-	// 		receiveRandomCube(args[1])
-	// 	case "getPossibleMoves":
-	// 		getPossibleMoves(args[1])
-	// 	default:
-	// 		fmt.Println("No valid function selected.")
-	// 	}
-
-	cube := rubik.InitializeScrambledCube(1)
-
-	pieceEmbed, colorEmbed := rubik.EmbedCube(cube)
-
-	fmt.Println(pieceEmbed)
-	fmt.Println(colorEmbed)
+	switch f := args[0]; f {
+	case "receiveRandomCubes":
+		for _, sMoves := range args[1:] {
+			receiveRandomCubes(sMoves)
+		}
+	default:
+		fmt.Println("No valid function selected.")
+	}
 }

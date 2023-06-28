@@ -15,30 +15,25 @@ def decodeCubes(raw: str, device: str = 'cpu'):
     rawSplit = raw.replace('[', '').replace(']', '').split('\n')[:-1]
 
     cubes = []
-    embeds = []
-    diff = np.array([])
+    loc_embeds = []
+    color_embeds = []
     for item in rawSplit:
         itemSplit = item.split("|")
         cubes.append(itemSplit[0])
-        embeds.append(np.array(itemSplit[1].split(' ')).astype(int))
+        loc_embeds.append(itemSplit[1].split(' '))
+        color_embeds.append(itemSplit[2].split(' '))
 
-        try:
-            diff = np.append(diff, np.array(itemSplit[2].split(' ')).astype(int))
-        except IndexError:
-            pass
-    
-    diff = diff.reshape((-1, 282))
-    diff = tensor(diff, dtype=torch.float, device=device, requires_grad=False)
+    loc_embeds = tensor(np.array(loc_embeds).astype(int), dtype=torch.long, device=device, requires_grad=False)
+    color_embeds = tensor(np.array(color_embeds).astype(int), dtype=torch.long, device=device, requires_grad=False)
 
-    return cubes, embeds, diff
+    return cubes, loc_embeds, color_embeds
 
 
-def receiveRandomCube(nMoves: int):
-    raw = runGo('receiveRandomCube', str(nMoves))
-    cubes, embeds, _ = decodeCubes(raw)
-    return cubes[0], embeds[0]
+def receiveRandomCubes(nMoves: np.array, device: str = 'cpu'):
+    raw = runGo('receiveRandomCubes', *nMoves.astype(str))
+    cubes, loc_embeds, color_embeds = decodeCubes(raw, device)
+    return cubes, loc_embeds, color_embeds
 
-def getPossibleMoves(cube: str, **kwargs):
-    raw = runGo('getPossibleMoves', cube)
-    cubes, embeds, diff = decodeCubes(raw, **kwargs)
-    return cubes, embeds, diff
+if __name__ == '__main__':
+    cubes, loc_embeds, color_embeds = receiveRandomCubes(np.array([1, 1, 5]))
+    print(loc_embeds)
