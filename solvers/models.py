@@ -23,7 +23,7 @@ logger.addHandler(logging.StreamHandler(sys.stdout))
 class Head(nn.Module):
     """One head of self attention"""
 
-    def __init__(self, context_size: int, n_embed: int, head_size: int, dropout: float) -> None:
+    def __init__(self, n_embed: int, head_size: int, dropout: float) -> None:
         super().__init__()
         # Queries, Keys and Values
         self.query = nn.Linear(n_embed, head_size, bias=False)
@@ -32,7 +32,7 @@ class Head(nn.Module):
 
         # Other variables/layers
         self.dropout = nn.Dropout(dropout)
-        self.register_buffer('tril', torch.tril(torch.ones(context_size, context_size)))
+        # self.register_buffer('tril', torch.tril(torch.ones(context_size, context_size)))
 
     def forward(self, x: tensor):
         # Input of size (batch, context_size, n_embed)
@@ -55,9 +55,9 @@ class Head(nn.Module):
 class MultiHeadAttention(nn.Module):
     """Multiple heads of self-attention in parallel"""
 
-    def __init__(self, context_size: int, n_embed: int, head_size: int, n_heads: int, dropout: float) -> None:
+    def __init__(self, n_embed: int, head_size: int, n_heads: int, dropout: float) -> None:
         super().__init__()
-        self.heads = nn.ModuleList([Head(context_size, n_embed, head_size, dropout) for _ in range(n_heads)])
+        self.heads = nn.ModuleList([Head(n_embed, head_size, dropout) for _ in range(n_heads)])
         self.proj = nn.Linear(head_size * n_heads, n_embed)
         self.dropout = nn.Dropout(dropout)
 
@@ -86,11 +86,11 @@ class FeedFoward(nn.Module):
 class Block(nn.Module):
     """ Transformer block: communication followed by computation """
 
-    def __init__(self, context_size: int, n_embed: int, n_heads: int, dropout: float) -> None:
+    def __init__(self, n_embed: int, n_heads: int, dropout: float) -> None:
         # n_embed: embedding dimension, n_head: the number of heads we'd like
         super().__init__()
         head_size = max(n_embed // n_heads, 1)
-        self.sa = MultiHeadAttention(context_size, n_embed, head_size, n_heads, dropout)
+        self.sa = MultiHeadAttention(n_embed, head_size, n_heads, dropout)
         self.ffwd = FeedFoward(n_embed, dropout)
         self.ln1 = nn.LayerNorm(n_embed)
         self.ln2 = nn.LayerNorm(n_embed)
@@ -98,23 +98,22 @@ class Block(nn.Module):
     def forward(self, x):
         x = x + self.sa(self.ln1(x))
         x = x + self.ffwd(self.ln2(x))
-        # x = x + self.sa(x)
-        # x = x + self.ffwd(x)
         return x
 
 
 class Transformer(nn.Module):
 
-    def __init__(self, context_size: int, n_embed: int, n_heads: int, n_layers: int, dropout: float) -> None:
+    def __init__(self, location_size: int, color_size: int, n_embed: int, n_heads: int, n_layers: int, dropout: float) -> None:
         super().__init__()
         # Create embedding for attention
-        self.embedding = nn.Linear(1, n_embed)
+        self.loc_embedding = nn.Embedding(location_size, n_embed)
+        self.color_embedding = nn.Embedding(color_size, n_embed)
 
         # Transformer layers
-        self.blocks = nn.Sequential(*[Block(context_size, n_embed, n_heads, dropout) for _ in range(n_layers)])
-        self.ln_f = nn.LayerNorm(n_embed) # final layer norm
-        self.lm_head = nn.Linear(n_embed, 1)
-        self.ffwd_result = FeedFoward(context_size, 0.2, 1)
+        self.blocks = nn.Sequential(*[Block(n_embed, n_heads, dropout) for _ in range(n_layers)])
+        self.ln_f = nn.LayerNorm(2 * n_embed) # final layer norm
+        self.lm_head = nn.Linear(2 * n_embed, 18)
+        # self.ffwd_result = FeedFoward(context_size, 0.2, 1)
 
         # Initialize weights
         self.apply(self._init_weights)
@@ -127,10 +126,8 @@ class Transformer(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, embed_x: tensor):
-        # embed_x (B, C)
-        x = embed_x[:, :, None] # (B, C, 1)
-        x = self.embedding(x) # (B, C, E)
+    def forward(self, loc_embed: tensor, color_embed: tensor):
+        x = torch.cat((self.loc_embedding(loc_embed), self.color_embedding(color_embed)), 1)  # (B, C, E)
         x = self.blocks(x) # (B, C, E)
         x = self.ln_f(x) # (B, C, E)
         pred = torch.squeeze(self.lm_head(x)) # (B, C)
