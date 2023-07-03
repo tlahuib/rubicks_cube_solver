@@ -113,7 +113,7 @@ class Transformer(nn.Module):
         self.blocks = nn.Sequential(*[Block(n_embed, n_heads, dropout) for _ in range(n_layers)])
         self.ln_f = nn.LayerNorm(n_embed) # final layer norm
         self.lm_head = nn.Linear(n_embed, 1)
-        self.ffwd_result = FeedFoward(location_size + color_size, 0.2, 18)
+        self.ffwd_result = FeedFoward(location_size + color_size, 0.2, 12)
 
         # Initialize weights
         self.apply(self._init_weights)
