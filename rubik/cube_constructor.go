@@ -110,19 +110,19 @@ var MoveNotation = map[Move]string{
 	{Axis: 2, Line: 2, Direction: false}: "B",
 	{Axis: 2, Line: 2, Direction: true}:  "B'",
 }
-var SimplifiedMoves = map[Move]string{
-	{Axis: 0, Line: 0, Direction: false}: "U",
-	{Axis: 0, Line: 0, Direction: true}:  "U'",
-	{Axis: 0, Line: 2, Direction: false}: "D'",
-	{Axis: 0, Line: 2, Direction: true}:  "D",
-	{Axis: 1, Line: 0, Direction: false}: "L",
-	{Axis: 1, Line: 0, Direction: true}:  "L'",
-	{Axis: 1, Line: 2, Direction: false}: "R'",
-	{Axis: 1, Line: 2, Direction: true}:  "R",
-	{Axis: 2, Line: 0, Direction: false}: "F'",
-	{Axis: 2, Line: 0, Direction: true}:  "F",
-	{Axis: 2, Line: 2, Direction: false}: "B",
-	{Axis: 2, Line: 2, Direction: true}:  "B'",
+var SimplifiedMoves = []Move{
+	{Axis: 0, Line: 0, Direction: false},
+	{Axis: 0, Line: 0, Direction: true},
+	{Axis: 0, Line: 2, Direction: false},
+	{Axis: 0, Line: 2, Direction: true},
+	{Axis: 1, Line: 0, Direction: false},
+	{Axis: 1, Line: 0, Direction: true},
+	{Axis: 1, Line: 2, Direction: false},
+	{Axis: 1, Line: 2, Direction: true},
+	{Axis: 2, Line: 0, Direction: false},
+	{Axis: 2, Line: 0, Direction: true},
+	{Axis: 2, Line: 2, Direction: false},
+	{Axis: 2, Line: 2, Direction: true},
 }
 var centerPieces = [6][3]int{
 	{0, 1, 1}, {2, 1, 1}, {1, 1, 0},

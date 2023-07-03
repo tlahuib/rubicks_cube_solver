@@ -58,6 +58,17 @@ func receiveRandomCubes(sMoves string) {
 	encodeCube(cube)
 }
 
+func moveCubes(eCube string, sMove string) {
+
+	cube := decodeCube(eCube)
+	moveId, _ := strconv.Atoi(sMove)
+
+	cube = rubik.MoveCube(cube, rubik.SimplifiedMoves[moveId])
+
+	encodeCube(cube)
+
+}
+
 func main() {
 	args := os.Args[1:]
 
@@ -65,6 +76,11 @@ func main() {
 	case "receiveRandomCubes":
 		for _, sMoves := range args[1:] {
 			receiveRandomCubes(sMoves)
+		}
+	case "moveCubes":
+		for _, indArgs := range args[1:] {
+			sepArgs := strings.Split(indArgs, "|")
+			moveCubes(sepArgs[0], sepArgs[1])
 		}
 	default:
 		fmt.Println("No valid function selected.")

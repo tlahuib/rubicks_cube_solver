@@ -23,6 +23,7 @@ def decodeCubes(raw: str, device: str = 'cpu'):
         loc_embeds.append(itemSplit[1].split(' '))
         color_embeds.append(itemSplit[2].split(' '))
 
+    cubes = np.array(cubes)
     loc_embeds = tensor(np.array(loc_embeds).astype(int), dtype=torch.long, device=device, requires_grad=False)
     color_embeds = tensor(np.array(color_embeds).astype(int), dtype=torch.long, device=device, requires_grad=False)
 
@@ -34,6 +35,21 @@ def receiveRandomCubes(nMoves: np.array, device: str = 'cpu'):
     cubes, loc_embeds, color_embeds = decodeCubes(raw, device)
     return cubes, loc_embeds, color_embeds
 
+
+def moveCubes(cubes: np.array, moves: tensor, device: str = 'cpu'):
+    args = []
+    for item in  zip(cubes, moves.cpu().detach().numpy()):
+        args.append(item[0] + "|" + str(item[1]))
+
+    raw = runGo('moveCubes', *args)
+    cubes, loc_embeds, color_embeds = decodeCubes(raw, device)
+    return cubes, loc_embeds, color_embeds    
+
+
+
 if __name__ == '__main__':
     cubes, loc_embeds, color_embeds = receiveRandomCubes(np.array([1, 1, 5]))
+   
+    cubes, loc_embeds, color_embeds = moveCubes(cubes, tensor([0, 1, 5], dtype=torch.long, device='cuda'))
+
     print(loc_embeds)
