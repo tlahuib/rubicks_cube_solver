@@ -69,6 +69,16 @@ func moveCubes(eCube string, sMove string) {
 
 }
 
+func getPossiblePositions(eCube string) {
+
+	cube := decodeCube(eCube)
+
+	for _, move := range rubik.SimplifiedMoves {
+		encodeCube(rubik.MoveCube(cube, move))
+	}
+
+}
+
 func main() {
 	args := os.Args[1:]
 
@@ -82,6 +92,8 @@ func main() {
 			sepArgs := strings.Split(indArgs, "|")
 			moveCubes(sepArgs[0], sepArgs[1])
 		}
+	case "getPossiblePositions":
+		getPossiblePositions(args[1])
 	default:
 		fmt.Println("No valid function selected.")
 	}

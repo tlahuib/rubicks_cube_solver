@@ -318,17 +318,17 @@ func RotateCube(cube Cube, rotation Rotation) Cube {
 	return newCube
 }
 
-func GetPossibleMoves(cube Cube) []Cube {
-	var movedCubes []Cube
+// func GetPossiblePositions(cube Cube) []Cube {
+// 	var movedCubes []Cube
 
-	count := 0
-	for newMove := range MoveNotation {
-		movedCubes = append(movedCubes, MoveCube(cube, newMove))
-		count++
-	}
+// 	count := 0
+// 	for newMove := range MoveNotation {
+// 		movedCubes = append(movedCubes, MoveCube(cube, newMove))
+// 		count++
+// 	}
 
-	return movedCubes
-}
+// 	return movedCubes
+// }
 
 func GetFaceColors(cube Cube) map[rune]int {
 	faceColors := make(map[rune]int)

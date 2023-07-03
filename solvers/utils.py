@@ -6,6 +6,9 @@ from torch import tensor
 
 wd = os.getcwd()
 
+solvedLoc = tensor([list(range(20))], dtype=torch.long)
+solvedCol = tensor([list(range(48))], dtype=torch.long)
+
 def runGo(function: str, *args):
     result = subprocess.run(['go', 'run', f'{wd}/solvers/wrapper.go', function, *args], stdout=subprocess.PIPE)
 
@@ -43,7 +46,29 @@ def moveCubes(cubes: np.array, moves: tensor, device: str = 'cpu'):
 
     raw = runGo('moveCubes', *args)
     cubes, loc_embeds, color_embeds = decodeCubes(raw, device)
-    return cubes, loc_embeds, color_embeds    
+    return cubes, loc_embeds, color_embeds
+
+
+def getPossiblePositions(cube: str, device: str = 'cpu'):
+    raw = runGo('getPossiblePositions', cube)
+    cubes, loc_embeds, color_embeds = decodeCubes(raw, device)
+    return cubes, loc_embeds, color_embeds
+
+
+def followHeuristic(model, cube: np.array, loc_embeds: tensor, color_embeds: tensor, nMoves: int = 0, maxMoves=50, device: str = 'cpu'):
+
+    if torch.equal(loc_embeds, solvedLoc.to(device)) and torch.equal(color_embeds, solvedCol.to(device)):
+        return nMoves
+
+    if nMoves >= maxMoves:
+        return maxMoves
+
+    probs = model(loc_embeds, color_embeds)
+    move = torch.reshape(torch.argmax(probs), (1, 1))
+    _cube, _loc_embeds, _color_embeds = moveCubes(cube, move[None,:], device)
+    
+    return followHeuristic(model, _cube, _loc_embeds, _color_embeds, nMoves +1, device=device)
+
 
 
 

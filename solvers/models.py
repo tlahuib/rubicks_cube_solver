@@ -134,7 +134,7 @@ class Transformer(nn.Module):
         x = self.ln_f(x) # (B, C, E)
         pred = torch.squeeze(self.lm_head(x)) # (B, C)
         pred = torch.squeeze(self.ffwd_result(pred)) # (B, 18)
-        pred = F.softmax(pred, -1)
+        # pred = F.softmax(pred, -1)
 
         return pred
     
