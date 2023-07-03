@@ -110,31 +110,23 @@ var MoveNotation = map[Move]string{
 	{Axis: 2, Line: 2, Direction: false}: "B",
 	{Axis: 2, Line: 2, Direction: true}:  "B'",
 }
-var possibleRotations = []Rotation{
-	{Axis: 0, Direction: true},  //0
-	{Axis: 0, Direction: false}, //1
-	{Axis: 1, Direction: true},  //2
-	{Axis: 1, Direction: false}, //3
-	{Axis: 2, Direction: true},  //4
-	{Axis: 2, Direction: false}, //5
+var SimplifiedMoves = map[Move]string{
+	{Axis: 0, Line: 0, Direction: false}: "U",
+	{Axis: 0, Line: 0, Direction: true}:  "U'",
+	{Axis: 0, Line: 2, Direction: false}: "D'",
+	{Axis: 0, Line: 2, Direction: true}:  "D",
+	{Axis: 1, Line: 0, Direction: false}: "L",
+	{Axis: 1, Line: 0, Direction: true}:  "L'",
+	{Axis: 1, Line: 2, Direction: false}: "R'",
+	{Axis: 1, Line: 2, Direction: true}:  "R",
+	{Axis: 2, Line: 0, Direction: false}: "F'",
+	{Axis: 2, Line: 0, Direction: true}:  "F",
+	{Axis: 2, Line: 2, Direction: false}: "B",
+	{Axis: 2, Line: 2, Direction: true}:  "B'",
 }
 var centerPieces = [6][3]int{
 	{0, 1, 1}, {2, 1, 1}, {1, 1, 0},
 	{1, 1, 2}, {1, 0, 1}, {1, 2, 1},
-}
-var cornerPieces = [8][3]int{
-	{0, 0, 0}, {0, 0, 2}, {0, 2, 0}, {0, 2, 2},
-	{2, 0, 0}, {2, 0, 2}, {2, 2, 0}, {2, 2, 2},
-}
-var standardMoves = map[[4]int][]int{
-	{0, 0, 0, 0}: {}, {0, 0, 0, 2}: {5, 2}, {0, 0, 0, 4}: {4, 1},
-	{0, 0, 2, 0}: {5}, {0, 0, 2, 3}: {1}, {0, 0, 2, 4}: {3, 4, 4},
-	{0, 2, 0, 0}: {4}, {0, 2, 0, 2}: {2, 5, 2}, {0, 2, 0, 5}: {2},
-	{0, 2, 2, 0}: {4, 4}, {0, 2, 2, 3}: {1, 4}, {0, 2, 2, 5}: {2, 5},
-	{2, 0, 0, 1}: {0, 5, 2}, {2, 0, 0, 2}: {0}, {2, 0, 0, 4}: {3},
-	{2, 0, 2, 1}: {0, 0}, {2, 0, 2, 3}: {5, 3}, {2, 0, 2, 4}: {3, 5},
-	{2, 2, 0, 1}: {2, 2}, {2, 2, 0, 2}: {0, 4}, {2, 2, 0, 5}: {2, 4},
-	{2, 2, 2, 1}: {5, 0, 0}, {2, 2, 2, 3}: {0, 3, 3}, {2, 2, 2, 5}: {0, 0, 2},
 }
 
 func getInitialRotations(colors []rune) map[rune]int {
@@ -151,22 +143,33 @@ func InitializeCube() Cube {
 	// The array is face, line, column
 	// The faces are ordered front, back, left, right, top, bottom
 	var cube Cube
+	centerPiecesMap := make(map[[3]int]bool)
+
+	for _, location := range centerPieces {
+		centerPiecesMap[location] = true
+	}
 
 	pieceId := 0
 	colorId := 0
-	for layer := 0; layer < 3; layer++ {
+	for section := 0; section < 3; section++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
-				if [3]int{layer, row, col} != [3]int{1, 1, 1} {
-					colors := initialCube[layer][row][col]
+				if [3]int{section, row, col} != [3]int{1, 1, 1} {
+					colors := initialCube[section][row][col]
 					colorMap := getInitialRotations(colors)
-					colorIdMap := make(map[rune]int)
-					for _, color := range colors {
-						colorIdMap[color] = colorId
-						colorId++
+					if _, ok := centerPiecesMap[[3]int{section, row, col}]; ok {
+						cube.Pieces[section][row][col] = Piece{ColorMap: colorMap, Id: -1}
+					} else {
+						colorIdMap := make(map[rune]int)
+						for _, color := range colors {
+							colorIdMap[color] = colorId
+							colorId++
+						}
+						cube.Pieces[section][row][col] = Piece{ColorMap: colorMap, Id: pieceId, ColorId: colorIdMap}
+						pieceId++
 					}
-					cube.Pieces[layer][row][col] = Piece{ColorMap: colorMap, Id: pieceId, ColorId: colorIdMap}
-					pieceId++
+				} else {
+					cube.Pieces[section][row][col] = Piece{Id: -1}
 				}
 			}
 		}
@@ -315,40 +318,6 @@ func RotateCube(cube Cube, rotation Rotation) Cube {
 	return newCube
 }
 
-func standardizePosition(cube Cube) Cube {
-	var location [4]int
-	newCube := copyCube(cube)
-
-	for _, coord := range cornerPieces {
-		piece := cube.Pieces[coord[0]][coord[1]][coord[2]]
-		if piece.Id == 0 {
-			location = [4]int{coord[0], coord[1], coord[2], piece.ColorMap['w']}
-			break
-		}
-	}
-
-	for _, rotId := range standardMoves[location] {
-		newCube = RotateCube(newCube, possibleRotations[rotId])
-	}
-
-	piece := newCube.Pieces[0][0][0]
-	if (piece.Id != 0) || (piece.ColorMap['w'] != 0) {
-		fmt.Println(location)
-		fmt.Println(standardMoves[location])
-		PrintCube(cube)
-
-		for _, rotId := range standardMoves[location] {
-			cube = RotateCube(cube, possibleRotations[rotId])
-			PrintCube(cube)
-		}
-
-		PrintCube(newCube)
-		panic(fmt.Sprintf("Standardization Error:\n\tID: %v\tWhite Face: %v", piece.Id, piece.ColorMap['w']))
-	}
-
-	return newCube
-}
-
 func GetPossibleMoves(cube Cube) []Cube {
 	var movedCubes []Cube
 
@@ -432,7 +401,11 @@ func scrambleCube(cube Cube, nMoves int) Cube {
 	newCube := copyCube(cube)
 
 	for i := 0; i < nMoves; i++ {
-		move := Move{rand.Intn(3), rand.Intn(3), rand.Float32() <= 0.5}
+		line := rand.Intn(2)
+		if line == 1 {
+			line = 2
+		}
+		move := Move{rand.Intn(3), line, rand.Float32() <= 0.5}
 		newCube = MoveCube(newCube, move)
 	}
 	return newCube
@@ -466,11 +439,11 @@ func CubeToFaces(cube Cube) [6][3][3]rune {
 	// 		|---|
 	var faces [6][3][3]rune
 
-	for layer := 0; layer < 3; layer++ {
+	for section := 0; section < 3; section++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
-				piece := cube.Pieces[layer][row][col]
-				faceMap := pieceToFace[[3]int{layer, row, col}]
+				piece := cube.Pieces[section][row][col]
+				faceMap := pieceToFace[[3]int{section, row, col}]
 				for color, r := range piece.ColorMap {
 					coord := faceMap[r]
 					faces[r][coord[0]][coord[1]] = color
@@ -532,20 +505,27 @@ func SprintCube(cube Cube) string {
 	return strCube
 }
 
-func getLocationByID(id int) []int {
+func getInitialLocations() [][3]int {
+	var initialLocations [][3]int
+	centerPiecesMap := make(map[[3]int]bool)
 
-	cId := id
-	if cId >= 13 {
-		cId++
+	centerPiecesMap[[3]int{1, 1, 1}] = true
+	for _, location := range centerPieces {
+		centerPiecesMap[location] = true
 	}
 
-	col := cId % 3
-	cId = (cId - col) / 3
+	for segment := 0; segment < 3; segment++ {
+		for row := 0; row < 3; row++ {
+			for col := 0; col < 3; col++ {
+				location := [3]int{segment, row, col}
+				if _, ok := centerPiecesMap[location]; !ok {
+					initialLocations = append(initialLocations, location)
+				}
+			}
+		}
+	}
 
-	row := cId % 3
-	segment := (cId - row) / 3
-
-	return []int{segment, row, col}
+	return initialLocations
 }
 
 func EmbedCube(cube Cube) ([]int, []int) {
@@ -553,15 +533,15 @@ func EmbedCube(cube Cube) ([]int, []int) {
 	var pieceEmbed []int
 	var colorEmbed []int
 
-	// stdCube := standardizePosition(cube)
+	initialLocations := getInitialLocations()
 
 	for segment := 0; segment < 3; segment++ {
 		for row := 0; row < 3; row++ {
 			for col := 0; col < 3; col++ {
-				if [3]int{segment, row, col} != [3]int{1, 1, 1} {
-					piece := cube.Pieces[segment][row][col]
+				piece := cube.Pieces[segment][row][col]
+				if piece.Id != -1 {
 					pieceEmbed = append(pieceEmbed, piece.Id)
-					initialLocation := getLocationByID(piece.Id)
+					initialLocation := initialLocations[piece.Id]
 					colors := initialCube[initialLocation[0]][initialLocation[1]][initialLocation[2]]
 					for _, color := range colors {
 						colorEmbed = append(colorEmbed, piece.ColorId[color])
