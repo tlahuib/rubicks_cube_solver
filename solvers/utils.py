@@ -52,7 +52,7 @@ def moveCubes(cubes: np.array, moves: tensor, device: str = 'cpu'):
 def getPossiblePositions(cube: str, device: str = 'cpu'):
     raw = runGo('getPossiblePositions', cube)
     cubes, loc_embeds, color_embeds = decodeCubes(raw, device)
-    return cubes, loc_embeds, color_embeds
+    return cubes, loc_embeds, color_embeds, list(range(len(cubes)))
 
 
 def followHeuristic(model, cube: np.array, loc_embeds: tensor, color_embeds: tensor, nMoves: int = 0, maxMoves=50, device: str = 'cpu'):

@@ -2,6 +2,9 @@ import models
 import numpy as np
 import torch
 import utils
+from concurrent.futures import ThreadPoolExecutor as PoolExecutor
+import concurrent.futures as cf
+from time import time
 
 
 def initialize_model(n_embed: int = 3, n_heads: int = 6, n_layers: int = 6, dropout: float = 1):
@@ -13,11 +16,30 @@ def initialize_model(n_embed: int = 3, n_heads: int = 6, n_layers: int = 6, drop
     return model
 
 def compute_advantage(model: torch.nn.Module, cube: str, loc_embed: torch.tensor, color_embed: torch.tensor, device: str = 'cpu'):
-    nMoves = []
-    # TODO: Paralellize
-    for new_cube, new_loc_embed, new_color_embed in zip(*utils.getPossiblePositions(cube, device)):
-        nMoves.append(utils.followHeuristic(model, np.array([new_cube]), new_loc_embed[None, :], new_color_embed[None, :], device=device))
-    
+    nMoves = {}
+    tic = time()
+    with PoolExecutor() as executor:
+        iterator = zip(*utils.getPossiblePositions(cube, device))
+        future_queue = {
+            executor.submit(
+                utils.followHeuristic, 
+                model, 
+                np.array([new_cube]), 
+                new_loc_embed[None, :], 
+                new_color_embed[None, :], 
+                device=device
+            ): move 
+            for 
+                new_cube, 
+                new_loc_embed, 
+                new_color_embed,
+                move
+            in iterator
+        }
+        
+        for future in cf.as_completed(future_queue):
+            nMoves[future_queue[future]] = future.result()
+    print(f'Finished in {time() - tic:.2f} seconds')
     return nMoves
 
 
