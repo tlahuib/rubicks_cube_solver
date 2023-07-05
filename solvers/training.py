@@ -16,7 +16,7 @@ def initialize_model(n_embed: int = 3, n_heads: int = 6, n_layers: int = 6, drop
     return model
 
 def compute_advantage(model: torch.nn.Module, cube: str, loc_embed: torch.tensor, color_embed: torch.tensor, device: str = 'cpu'):
-    nMoves = {}
+    nMoves = np.empty(12)
     tic = time()
     with PoolExecutor() as executor:
         iterator = zip(*utils.getPossiblePositions(cube, device))
@@ -38,9 +38,13 @@ def compute_advantage(model: torch.nn.Module, cube: str, loc_embed: torch.tensor
         }
         
         for future in cf.as_completed(future_queue):
-            nMoves[future_queue[future]] = future.result()
-    print(f'Finished in {time() - tic:.2f} seconds')
-    return nMoves
+            nMoves[future_queue[future]] = future.result() + 1
+    
+    m0 = min(nMoves)
+
+    A = np.exp(-nMoves + m0) + np.exp(-m0) * (np.e - 1) - 1
+
+    return A
 
 
 
