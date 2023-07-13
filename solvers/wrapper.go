@@ -28,6 +28,8 @@ func encodeCube(cube rubik.Cube) {
 	fmt.Print(loc_embed)
 	fmt.Print("|")
 	fmt.Print(color_embed)
+	fmt.Print("|")
+	fmt.Print(cube.IsSolved)
 	fmt.Print("\n")
 
 }

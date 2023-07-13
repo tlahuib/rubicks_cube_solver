@@ -301,7 +301,7 @@ func MoveCube(cube Cube, move Move) Cube {
 		newCube = moveZ(cube, move.Line, move.Direction)
 	}
 
-	CheckSolvedCube(newCube)
+	newCube.IsSolved = CheckSolvedCube(newCube)
 	newCube.Moves = append(newCube.Moves, MoveNotation[move])
 
 	return newCube
@@ -317,18 +317,6 @@ func RotateCube(cube Cube, rotation Rotation) Cube {
 
 	return newCube
 }
-
-// func GetPossiblePositions(cube Cube) []Cube {
-// 	var movedCubes []Cube
-
-// 	count := 0
-// 	for newMove := range MoveNotation {
-// 		movedCubes = append(movedCubes, MoveCube(cube, newMove))
-// 		count++
-// 	}
-
-// 	return movedCubes
-// }
 
 func GetFaceColors(cube Cube) map[rune]int {
 	faceColors := make(map[rune]int)
@@ -379,7 +367,7 @@ func CheckCorrectLocation(piece Piece, faceColors map[rune]int) bool {
 	return true
 }
 
-func CheckSolvedCube(cube Cube) {
+func CheckSolvedCube(cube Cube) bool {
 	faceColors := GetFaceColors(cube)
 
 	for section := 0; section < 3; section++ {
@@ -387,28 +375,32 @@ func CheckSolvedCube(cube Cube) {
 			for col := 0; col < 3; col++ {
 				piece := cube.Pieces[section][row][col]
 				if !CheckCorrectLocation(piece, faceColors) {
-					cube.IsSolved = false
-					return
+					return false
 				}
 			}
 		}
 	}
 
-	cube.IsSolved = true
+	return true
 }
 
 func scrambleCube(cube Cube, nMoves int) Cube {
 	newCube := copyCube(cube)
 
-	for i := 0; i < nMoves; i++ {
-		line := rand.Intn(2)
-		if line == 1 {
-			line = 2
+	for {
+		for i := 0; i < nMoves; i++ {
+			line := rand.Intn(2)
+			if line == 1 {
+				line = 2
+			}
+			move := Move{rand.Intn(3), line, rand.Float32() <= 0.5}
+			newCube = MoveCube(newCube, move)
 		}
-		move := Move{rand.Intn(3), line, rand.Float32() <= 0.5}
-		newCube = MoveCube(newCube, move)
+
+		if !newCube.IsSolved {
+			return newCube
+		}
 	}
-	return newCube
 }
 
 func InitializeScrambledCube(nMoves int) Cube {
