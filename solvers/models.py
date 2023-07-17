@@ -125,9 +125,9 @@ class Transformer(nn.Module):
 
         self.value_layers = nn.Sequential(
             nn.LayerNorm(n_embed), # (B, C, E)
-            nn.Linear(n_embed, 1), # (B, C, E)
+            nn.Linear(n_embed, 1), # (B, C, 1)
             nn.Flatten(), # (B, C)
-            FeedFoward(location_size + color_size, 0.2, 1) # (B, 1)
+            FeedFoward(location_size + color_size, 0.2, 1), # (B, 1)
         )
 
         # Initialize weights

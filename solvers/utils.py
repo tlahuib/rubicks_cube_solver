@@ -76,7 +76,7 @@ def getPossiblePositions(cube: str, device: str = 'cpu'):
 
 
 if __name__ == '__main__':
-    cubes, loc_embeds, color_embeds, is_solved = receiveRandomCubes(np.array([1, 1, 5]))
+    cubes, loc_embeds, color_embeds, is_solved = receiveRandomCubes(np.array([1]))
    
     # cubes, loc_embeds, color_embeds, is_solved = moveCubes(cubes, tensor([0, 1, 5], dtype=torch.long, device='cuda'))
 
