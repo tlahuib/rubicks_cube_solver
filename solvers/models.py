@@ -1,7 +1,11 @@
+import os
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data
+import utils
 from torch import tensor
 
 
@@ -151,3 +155,25 @@ class Transformer(nn.Module):
         value_logits = self.value_layers(preprocessed_x)
 
         return policy_logits, value_logits
+
+
+def initialize_model(n_embed: int = 3, n_heads: int = 6, n_layers: int = 6, dropout: float = 1):
+    
+    _, loc_embed, color_embed, _ = utils.receiveRandomCubes(np.array([1]))
+
+    model = Transformer(len(loc_embed[0]), len(color_embed[0]), n_embed, n_heads, n_layers, dropout)
+
+    return model
+
+
+def load_model(model):
+
+    checkpoints = []
+    for _, _, files in os.walk("solvers/Checkpoints/"):
+        for name in files:
+            checkpoints.append(name)
+
+    checkpoints.sort()
+
+    model.load_state_dict(torch.load('solvers/Checkpoints/' + checkpoints[-1]))
+    print(f'Loaded {checkpoints[-1]}')
