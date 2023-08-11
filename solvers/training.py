@@ -1,11 +1,10 @@
+import datetime
+from copy import deepcopy
+
 import models
 import numpy as np
 import torch
 import utils
-from concurrent.futures import ThreadPoolExecutor as PoolExecutor
-import concurrent.futures as cf
-from time import time
-from copy import deepcopy
 
 
 class PPOTrainer():
@@ -71,15 +70,6 @@ class PPOTrainer():
 
         losses = np.array(losses)
         print(f"Value Loss Mean: {losses.mean():.2f}  Value Loss Std: {losses.std():.2f}")
-
-
-def initialize_model(n_embed: int = 3, n_heads: int = 6, n_layers: int = 6, dropout: float = 1):
-    
-    _, loc_embed, color_embed, _ = utils.receiveRandomCubes(np.array([1]))
-
-    model = models.Transformer(len(loc_embed[0]), len(color_embed[0]), n_embed, n_heads, n_layers, dropout)
-
-    return model
 
 
 def discount_rewards(rewards, gamma=0.99):
@@ -166,7 +156,7 @@ def rollout(orig_cubes, orig_loc_embed, orig_color_embed, orig_is_solved, max_st
 def train(epochs, batch_size, u_bound: int):
 
     for epoch in range(epochs):
-        print(f"Epoch ({epoch+1} / {epochs})")
+        print(f"Epoch ({epoch+1} / {epochs})  Upper bound {u_bound}")
 
         if u_bound == 1:
             scramble_moves = np.array([1] * batch_size)
@@ -196,30 +186,33 @@ def train(epochs, batch_size, u_bound: int):
         # Print results
         move_diff = solved_moves - scramble_moves
         print(f"Mean Solve: {solved_moves.mean():.1f}  Solve Std: {solved_moves.std():.2f}  Mean Diff: {move_diff.mean():.1f}  Diff Std: {move_diff.std():.2f}")
-        # print(solved_moves)
-        # print(scramble_moves)
-        # print(move_diff)
         print("----------------------------------------------------------\n\n")
-    
-
-
 
 
 if __name__ ==  '__main__':
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = initialize_model().to(device)
 
-    ppo = PPOTrainer(
-        actor_critic=model,
-        ppo_clip=0.1,
-        kl_div=0.005,
-        max_iters=20,
-        value_iters=20,
-        lr=7e-5,
-        value_lr=3e-3
-    )
+    for i in range(1, 25):
+        print(f'\n\n---Starting training with {i} moves---\n\n')
+        model = models.initialize_model()
+        models.load_model(model)
+        model.to(device)
 
-    train(100, 50, 1)
+        ppo = PPOTrainer(
+            actor_critic=model,
+            ppo_clip=0.05,
+            kl_div=0.005,
+            max_iters=1000,
+            value_iters=1000,
+            lr=5e-5,
+            value_lr=1e-4
+        )
+
+        train(200, 75, i)
+
+        torch.save(model.state_dict(), f'solvers/Checkpoints/{datetime.datetime.now().strftime("%Y%m%d%H%M%S")}.pt')
+
+
 
 

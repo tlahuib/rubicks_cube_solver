@@ -1,3 +1,4 @@
 */solves/
 .venv/
 */*pycache*/
+*/Checkpoints/
